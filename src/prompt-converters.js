@@ -8,6 +8,7 @@ const REASONING_EFFORT = {
     low: 'low',
     medium: 'medium',
     high: 'high',
+    xhigh: 'xhigh',
     min: 'min',
     max: 'max',
 };
@@ -1126,9 +1127,10 @@ export function cachingSystemPromptForOpenRouter(messages, ttl = undefined) {
  * @param {string} reasoningEffort Reasoning effort
  * @param {boolean} stream If streaming is enabled
  * @param {boolean} isAdaptiveModel If the model supports adaptive thinking (Opus 4.6+)
+ * @param {boolean} [supportsXHighEffort] If the model supports the xhigh effort level (Opus 4.7+)
  * @returns {number|string|null} Budget tokens, effort string, or null
  */
-export function calculateClaudeBudgetTokens(maxTokens, reasoningEffort, stream, isAdaptiveModel) {
+export function calculateClaudeBudgetTokens(maxTokens, reasoningEffort, stream, isAdaptiveModel, supportsXHighEffort = false) {
     // Adaptive thinking for Opus 4.6+: return effort string (like Gemini 3)
     if (isAdaptiveModel) {
         switch (reasoningEffort) {
@@ -1142,6 +1144,9 @@ export function calculateClaudeBudgetTokens(maxTokens, reasoningEffort, stream, 
                 return 'medium';
             case REASONING_EFFORT.high:
                 return 'high';
+            case REASONING_EFFORT.xhigh:
+                // xhigh arrived with Opus 4.7; older adaptive models reject it.
+                return supportsXHighEffort ? 'xhigh' : 'high';
             case REASONING_EFFORT.max:
                 return 'max';
         }
@@ -1164,6 +1169,9 @@ export function calculateClaudeBudgetTokens(maxTokens, reasoningEffort, stream, 
             break;
         case REASONING_EFFORT.high:
             budgetTokens = Math.floor(maxTokens * 0.5);
+            break;
+        case REASONING_EFFORT.xhigh:
+            budgetTokens = Math.floor(maxTokens * 0.75);
             break;
         case REASONING_EFFORT.max:
             budgetTokens = Math.floor(maxTokens * 0.95);
@@ -1204,6 +1212,9 @@ export function calculateGoogleBudgetTokens(maxTokens, reasoningEffort, model) {
             case REASONING_EFFORT.high:
                 budgetTokens = Math.floor(maxTokens * 0.5);
                 break;
+            case REASONING_EFFORT.xhigh:
+                budgetTokens = Math.floor(maxTokens * 0.75);
+                break;
             case REASONING_EFFORT.max:
                 budgetTokens = maxTokens;
                 break;
@@ -1230,6 +1241,9 @@ export function calculateGoogleBudgetTokens(maxTokens, reasoningEffort, model) {
                 break;
             case REASONING_EFFORT.high:
                 budgetTokens = Math.floor(maxTokens * 0.5);
+                break;
+            case REASONING_EFFORT.xhigh:
+                budgetTokens = Math.floor(maxTokens * 0.75);
                 break;
             case REASONING_EFFORT.max:
                 budgetTokens = maxTokens;
@@ -1259,6 +1273,9 @@ export function calculateGoogleBudgetTokens(maxTokens, reasoningEffort, model) {
             case REASONING_EFFORT.high:
                 budgetTokens = Math.floor(maxTokens * 0.5);
                 break;
+            case REASONING_EFFORT.xhigh:
+                budgetTokens = Math.floor(maxTokens * 0.75);
+                break;
             case REASONING_EFFORT.max:
                 budgetTokens = maxTokens;
                 break;
@@ -1281,6 +1298,9 @@ export function calculateGoogleBudgetTokens(maxTokens, reasoningEffort, model) {
                 return 'medium';
             case REASONING_EFFORT.high:
                 return 'high';
+            case REASONING_EFFORT.xhigh:
+                // Gemini has no xhigh level.
+                return 'high';
             case REASONING_EFFORT.max:
                 return 'high';
         }
@@ -1299,6 +1319,9 @@ export function calculateGoogleBudgetTokens(maxTokens, reasoningEffort, model) {
             case REASONING_EFFORT.medium:
                 return 'low';
             case REASONING_EFFORT.high:
+                return 'high';
+            case REASONING_EFFORT.xhigh:
+                // Gemini has no xhigh level.
                 return 'high';
             case REASONING_EFFORT.max:
                 return 'high';
