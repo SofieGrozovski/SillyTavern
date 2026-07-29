@@ -261,6 +261,12 @@ export const tool_reasoning_modes = {
 const interleaved_reasoning_providers = [
     chat_completion_sources.OPENROUTER,
     chat_completion_sources.CUSTOM,
+    chat_completion_sources.CLAUDE,
+];
+
+// Providers that replay verbatim signed reasoning blocks instead of plaintext reasoning.
+const reasoning_block_replay_providers = [
+    chat_completion_sources.CLAUDE,
 ];
 
 export const ZAI_ENDPOINT = {
@@ -628,13 +634,16 @@ function setOpenAIMessages(chat) {
         const signature = isSameModel && !isOtherGroupMember ? chat[j]?.extra?.reasoning_signature : null;
         const reasoning = isSameModel && !isOtherGroupMember ? String(chat[j]?.extra?.reasoning ?? '') : '';
 
-        // Remove reasoning metadata from invocations if the API/model don't match
+        // Remove reasoning metadata from invocations if the API/model don't match.
+        // Verbatim reasoning blocks are signed by the model that produced them, so replaying
+        // them anywhere else is rejected outright.
         if (Array.isArray(invocations) && invocations.length > 0) {
             invocations.forEach((invocation, index) => {
-                if (!isSameModel && (invocation.signature || invocation.reasoning)) {
+                if (!isSameModel && (invocation.signature || invocation.reasoning || invocation.reasoning_blocks)) {
                     const cloneInvocation = structuredClone(invocation);
                     delete cloneInvocation.signature;
                     delete cloneInvocation.reasoning;
+                    delete cloneInvocation.reasoning_blocks;
                     invocations[index] = cloneInvocation;
                 }
             });
@@ -937,6 +946,7 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
     const canUseTools = ToolManager.isToolCallingSupported();
     const includeSignature = isReasoningSignatureSupported();
     const isToolReasoningProvider = interleaved_reasoning_providers.includes(oai_settings.chat_completion_source);
+    const replayReasoningBlocks = reasoning_block_replay_providers.includes(oai_settings.chat_completion_source);
     const toolReasoningMode = isToolReasoningProvider
         ? getEffectiveToolReasoningMode()
         : tool_reasoning_modes.DISABLED;
@@ -1041,15 +1051,17 @@ async function populateChatHistory(messages, prompts, chatCompletion, type = nul
                 const clone = structuredClone(invocation);
                 if (!reasoningIsEligible) {
                     delete clone.reasoning;
+                    delete clone.reasoning_blocks;
                 } else if (previousAssistantReasoning && !clone.reasoning) {
                     // Fall back to adjacent assistant-text reasoning only when the invocation has none of its own.
+                    // Verbatim blocks have no such fallback — they only ever come from the turn that produced them.
                     clone.reasoning = previousAssistantReasoning;
                 }
                 return clone;
             });
             const toolCallMessage = await Message.createAsync(chatMessage.role, undefined, 'toolCall-' + chatMessage.identifier);
             const toolResultMessages = await Promise.all(invocations.slice().reverse().map((invocation) => Message.createAsync('tool', invocation.result || '[No content]', invocation.id)));
-            await toolCallMessage.setToolCalls(invocations, includeSignature, includeToolReasoning);
+            await toolCallMessage.setToolCalls(invocations, includeSignature, { includeReasoning: includeToolReasoning, replayReasoningBlocks });
             if (chatCompletion.canAffordAll([toolCallMessage, ...toolResultMessages])) {
                 for (const resultMessage of toolResultMessages) {
                     chatCompletion.insertAtStart(resultMessage, 'chatHistory');
@@ -3105,7 +3117,7 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
             let text = '';
             const swipes = [];
             const toolCalls = [];
-            const state = { reasoning: '', images: [], signature: '', toolSignatures: {} };
+            const state = { reasoning: '', images: [], signature: '', toolSignatures: {}, reasoningBlocks: [] };
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) return;
@@ -3151,6 +3163,48 @@ async function sendOpenAIRequest(type, messages, signal, { jsonSchema = null } =
 }
 
 /**
+ * Accumulates verbatim Claude thinking blocks from a streaming event.
+ *
+ * Interleaved thinking requires replaying the original thinking blocks — including their
+ * cryptographic signature — alongside the tool calls they produced. The blocks are collected
+ * separately from state.reasoning, which is regexed and user-editable and therefore unusable
+ * for replay.
+ * @param {any} data Streaming event from the Claude API
+ * @param {any} state Additional state to keep track of
+ * @returns {void}
+ */
+function accumulateClaudeReasoningBlocks(data, state) {
+    const index = data?.index;
+    if (!Array.isArray(state.reasoningBlocks) || typeof index !== 'number') {
+        return;
+    }
+
+    if (data?.type === 'content_block_start') {
+        const block = data?.content_block;
+        if (block?.type === 'thinking') {
+            state.reasoningBlocks[index] = { type: 'thinking', thinking: block.thinking || '', signature: block.signature || '' };
+        }
+        if (block?.type === 'redacted_thinking') {
+            state.reasoningBlocks[index] = { type: 'redacted_thinking', data: block.data || '' };
+        }
+        return;
+    }
+
+    if (data?.type === 'content_block_delta') {
+        const block = state.reasoningBlocks[index];
+        if (block?.type !== 'thinking') {
+            return;
+        }
+        if (data?.delta?.type === 'thinking_delta') {
+            block.thinking += data.delta.thinking || '';
+        }
+        if (data?.delta?.type === 'signature_delta') {
+            block.signature += data.delta.signature || '';
+        }
+    }
+}
+
+/**
  * Extracts the reply from the response data from a chat completions-like source
  * @param {object} data Response data from the chat completions-like source
  * @param {object} state Additional state to keep track of
@@ -3167,6 +3221,7 @@ export function getStreamingReply(data, state, { chatCompletionSource = null, ov
         if (show_thoughts) {
             state.reasoning += data?.delta?.thinking || '';
         }
+        accumulateClaudeReasoningBlocks(data, state);
         return data?.delta?.text || '';
     } else if ([chat_completion_sources.MAKERSUITE, chat_completion_sources.VERTEXAI].includes(chat_completion_source)) {
         const inlineData = data?.candidates?.[0]?.content?.parts?.filter(x => x.inlineData && !x.thought)?.map(x => x.inlineData) || [];
@@ -3467,6 +3522,8 @@ class Message {
     signature = null;
     /** @type {string?} */
     reasoning = null;
+    /** @type {object[]?} */
+    reasoning_blocks = null;
 
     /**
      * @constructor
@@ -3509,10 +3566,12 @@ class Message {
      * Reconstruct the message from a tool invocation.
      * @param {import('./tool-calling.js').ToolInvocation[]} invocations - The tool invocations to reconstruct the message from.
      * @param {boolean} includeSignature Whether to include the signature in the tool calls.
-     * @param {boolean} includeReasoning Whether to include plaintext reasoning fallback.
+     * @param {object} [options] Additional options
+     * @param {boolean} [options.includeReasoning] Whether to forward the reasoning of the tool call turn.
+     * @param {boolean} [options.replayReasoningBlocks] Whether to forward verbatim reasoning blocks instead of plaintext reasoning.
      * @returns {Promise<void>}
      */
-    async setToolCalls(invocations, includeSignature, includeReasoning = false) {
+    async setToolCalls(invocations, includeSignature, { includeReasoning = false, replayReasoningBlocks = false } = {}) {
         this.tool_calls = invocations.map(i => ({
             id: i.id,
             type: 'function',
@@ -3522,12 +3581,17 @@ class Message {
             },
             ...(includeSignature && i.signature ? { signature: i.signature } : {}),
         }));
+        // Verbatim blocks and plaintext reasoning are mutually exclusive: providers that validate
+        // block signatures reject reconstructed reasoning, so never send both.
+        const fallbackBlocks = invocations.find(i => Array.isArray(i.reasoning_blocks) && i.reasoning_blocks.length > 0)?.reasoning_blocks || null;
         const fallbackReasoning = invocations.find(i => typeof i.reasoning === 'string' && i.reasoning.length > 0)?.reasoning || null;
-        this.reasoning = includeReasoning ? fallbackReasoning : null;
+        this.reasoning_blocks = includeReasoning && replayReasoningBlocks ? fallbackBlocks : null;
+        this.reasoning = includeReasoning && !replayReasoningBlocks ? fallbackReasoning : null;
+        const countedReasoning = this.reasoning || (this.reasoning_blocks ? JSON.stringify(this.reasoning_blocks) : '');
         this.tokens = await tokenHandler.countAsync({
             role: this.role,
             tool_calls: JSON.stringify(this.tool_calls),
-            ...(this.reasoning ? { reasoning: this.reasoning } : {}),
+            ...(countedReasoning ? { reasoning: countedReasoning } : {}),
         });
     }
 
@@ -3780,6 +3844,7 @@ class MessageCollection {
                     ...(message.role === 'tool' && { tool_call_id: message.identifier }),
                     ...(message.signature && { signature: message.signature }),
                     ...(message.reasoning && { reasoning: message.reasoning }),
+                    ...(message.reasoning_blocks?.length && { reasoning_blocks: message.reasoning_blocks }),
                 });
             }
             return acc;
@@ -4392,8 +4457,11 @@ function setContinuePostfixControls() {
 
 function setToolReasoningControls() {
     const isEnabled = oai_settings.show_thoughts;
+    const replaysBlocks = reasoning_block_replay_providers.includes(oai_settings.chat_completion_source);
     $('#tool_reasoning_mode').prop('disabled', !isEnabled);
     $('#openrouter_interleaved_thinking_disabled_hint').toggle(!isEnabled);
+    $('#openrouter_interleaved_thinking_hint').toggle(!replaysBlocks);
+    $('#claude_interleaved_thinking_hint').toggle(replaysBlocks);
 }
 
 async function getStatusOpen() {
@@ -6885,6 +6953,7 @@ export function initOpenAI() {
         model_list = [];
         oai_settings.chat_completion_source = String($(this).find(':selected').val());
         toggleChatCompletionForms();
+        setToolReasoningControls();
         saveSettingsDebounced();
         reconnectOpenAi();
         forceCharacterEditorTokenize();

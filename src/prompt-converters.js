@@ -233,12 +233,20 @@ export function convertClaudeMessages(messages, prefillString, useSysPrompt, use
     const parse = (str) => typeof str === 'string' ? JSON.parse(str) : str;
     messages.forEach((message) => {
         if (message.role === 'assistant' && message.tool_calls) {
-            message.content = message.tool_calls.map((tc) => ({
+            const toolUseBlocks = message.tool_calls.map((tc) => ({
                 type: 'tool_use',
                 id: tc.id,
                 name: tc.function.name,
                 input: parse(tc.function.arguments),
             }));
+
+            // Interleaved thinking: the thinking blocks that produced these tool calls must be
+            // replayed verbatim, and must precede the tool_use blocks in the same turn.
+            const thinkingBlocks = Array.isArray(message.reasoning_blocks)
+                ? message.reasoning_blocks.filter(b => b?.type === 'thinking' || b?.type === 'redacted_thinking')
+                : [];
+
+            message.content = [...thinkingBlocks, ...toolUseBlocks];
         }
 
         if (message.role === 'tool') {
@@ -310,6 +318,9 @@ export function convertClaudeMessages(messages, prefillString, useSysPrompt, use
         delete message.name;
         delete message.tool_calls;
         delete message.tool_call_id;
+        delete message.reasoning;
+        delete message.reasoning_blocks;
+        delete message.signature;
     });
 
     // Images in assistant messages should be moved to the next user message

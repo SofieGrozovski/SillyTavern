@@ -2029,7 +2029,7 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div class="range-block" data-source="openrouter,custom">
+                                    <div class="range-block" data-source="openrouter,custom,claude">
                                         <div class="flex-container flexFlowColumn wide100p textAlignCenter marginTop10">
                                             <div class="flex-container oneline-dropdown">
                                                 <label for="tool_reasoning_mode" data-i18n="Interleaved Thinking">
@@ -2042,9 +2042,14 @@
                                                 </select>
                                             </div>
                                         </div>
-                                        <div class="toggle-description justifyLeft">
+                                        <div id="openrouter_interleaved_thinking_hint" class="toggle-description justifyLeft">
                                             <span data-i18n="openrouter_interleaved_thinking_hint">
                                                 Sends reasoning from preceding assistant turns with tool-call requests to maintain interleaved thinking context.
+                                            </span>
+                                        </div>
+                                        <div id="claude_interleaved_thinking_hint" class="toggle-description justifyLeft" style="display:none;">
+                                            <span data-i18n="claude_interleaved_thinking_hint">
+                                                Replays the original signed thinking blocks with tool-call requests. Both enabled modes behave identically here, as the blocks always come from the turn that made the tool call.
                                             </span>
                                         </div>
                                         <div id="openrouter_interleaved_thinking_disabled_hint" class="toggle-description justifyLeft" style="display:none;">

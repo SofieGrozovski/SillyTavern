@@ -269,7 +269,7 @@ import { initServerHistory } from './scripts/server-history.js';
 import { initSettingsSearch } from './scripts/setting-search.js';
 import { initBulkEdit } from './scripts/bulk-edit.js';
 import { getContext } from './scripts/st-context.js';
-import { extractReasoningFromData, extractReasoningSignatureFromData, initReasoning, parseReasoningInSwipes, PromptReasoning, ReasoningHandler, removeReasoningFromString, updateReasoningUI } from './scripts/reasoning.js';
+import { extractReasoningBlocksFromData, extractReasoningFromData, extractReasoningSignatureFromData, initReasoning, parseReasoningInSwipes, PromptReasoning, ReasoningHandler, removeReasoningFromString, updateReasoningUI } from './scripts/reasoning.js';
 import { accountStorage } from './scripts/util/AccountStorage.js';
 import { initWelcomeScreen, openPermanentAssistantChat, openPermanentAssistantCard, getPermanentAssistantAvatar } from './scripts/welcome-screen.js';
 import { initDataMaid } from './scripts/data-maid.js';
@@ -3557,6 +3557,8 @@ class StreamingProcessor {
         this.images = [];
         /** @type {string?} */
         this.reasoningSignature = null;
+        /** @type {object[]} Verbatim reasoning blocks, replayed to preserve interleaved thinking */
+        this.reasoningBlocks = [];
     }
 
     /**
@@ -3866,6 +3868,7 @@ class StreamingProcessor {
                 this.reasoningHandler.updateReasoning(this.messageId, state?.reasoning);
                 this.images = state?.images ?? [];
                 this.reasoningSignature = state?.signature ?? null;
+                this.reasoningBlocks = (state?.reasoningBlocks ?? []).filter(Boolean);
                 await eventSource.emit(event_types.STREAM_TOKEN_RECEIVED, text);
                 await sw.tick(async () => await this.onProgressStreaming(this.messageId, this.continueMessage + text));
             }
@@ -5391,6 +5394,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
                 }
                 const invocationResult = await ToolManager.invokeFunctionTools(streamingProcessor.toolCalls, {
                     reasoningText: streamingProcessor.reasoningHandler.reasoning,
+                    reasoningBlocks: streamingProcessor.reasoningBlocks,
                 });
                 const shouldStopGeneration = (!invocationResult.invocations.length && shouldDeleteMessage) || invocationResult.stealthCalls.length;
                 if (hasToolCalls) {
@@ -5516,7 +5520,10 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
             const hasToolCalls = ToolManager.hasToolCalls(data);
             const shouldDeleteMessage = type !== 'swipe' && ['', '...'].includes(getMessage) && !reasoning;
             hasToolCalls && shouldDeleteMessage && await deleteLastMessage();
-            const invocationResult = await ToolManager.invokeFunctionTools(data, { reasoningText: reasoning });
+            const invocationResult = await ToolManager.invokeFunctionTools(data, {
+                reasoningText: reasoning,
+                reasoningBlocks: extractReasoningBlocksFromData(data),
+            });
             const shouldStopGeneration = (!invocationResult.invocations.length && shouldDeleteMessage) || invocationResult.stealthCalls.length;
             if (hasToolCalls) {
                 if (shouldStopGeneration) {

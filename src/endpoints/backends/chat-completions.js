@@ -358,6 +358,13 @@ async function sendClaudeRequest(request, response) {
                 budget_tokens: budgetTokens,
             };
 
+            // Adaptive thinking enables interleaved thinking on its own, but the legacy
+            // budget_tokens path needs the beta header to think between tool calls.
+            // Claude 3.7 supports thinking with tools, but never interleaved thinking.
+            if (useTools && !/^claude-3-7/.test(request.body.model)) {
+                betaHeaders.push('interleaved-thinking-2025-05-14');
+            }
+
             // NO I CAN'T SILENTLY IGNORE THE TEMPERATURE.
             delete requestBody.temperature;
             delete requestBody.top_p;
@@ -366,6 +373,23 @@ async function sendClaudeRequest(request, response) {
 
         if ((fixThinkingPrefill || noPrefillModel) && convertedPrompt.messages.length && convertedPrompt.messages[convertedPrompt.messages.length - 1].role === 'assistant') {
             convertedPrompt.messages[convertedPrompt.messages.length - 1].role = 'user';
+        }
+
+        // Replayed thinking blocks are only accepted on assistant turns while thinking is enabled.
+        // Drop them anywhere else, since the API rejects the request outright otherwise.
+        const thinkingConfig = /** @type {any} */ (requestBody).thinking;
+        const canReplayThinking = Boolean(thinkingConfig) && thinkingConfig.type !== 'disabled';
+        for (const message of /** @type {any[]} */ (convertedPrompt.messages)) {
+            if (!Array.isArray(message.content)) {
+                continue;
+            }
+            if (canReplayThinking && message.role === 'assistant') {
+                continue;
+            }
+            const withoutThinking = message.content.filter(c => c?.type !== 'thinking' && c?.type !== 'redacted_thinking');
+            if (withoutThinking.length !== message.content.length) {
+                message.content = withoutThinking.length ? withoutThinking : [{ type: 'text', text: '\u200b' }];
+            }
         }
 
         // Verbosity = 'effort' (same values as OpenAI) - only if not already set by adaptive thinking

@@ -21,6 +21,7 @@ import { isTrueBoolean } from './utils.js';
  * @property {string} result - The result of the tool invocation.
  * @property {string?} signature - The thought signature associated with the tool invocation.
  * @property {string?} reasoning - The plaintext reasoning associated with this tool call turn.
+ * @property {object[]?} [reasoning_blocks] - Verbatim reasoning blocks of this tool call turn, replayed to preserve interleaved thinking.
  * @property {boolean} [error] - Whether the tool invocation failed.
  */
 
@@ -769,9 +770,15 @@ export class ToolManager {
     /**
      * Check for function tool calls in the response data and invoke them.
      * @param {any} data Reply data
+     * @param {object} [options] Additional options
+     * @param {string?} [options.reasoningText] Plaintext reasoning of the tool call turn
+     * @param {object[]?} [options.reasoningBlocks] Verbatim reasoning blocks of the tool call turn
      * @returns {Promise<ToolInvocationResult>} Successful tool invocations
      */
-    static async invokeFunctionTools(data, { reasoningText = null } = {}) {
+    static async invokeFunctionTools(data, { reasoningText = null, reasoningBlocks = null } = {}) {
+        const turnReasoningBlocks = Array.isArray(reasoningBlocks) && reasoningBlocks.length > 0
+            ? reasoningBlocks
+            : null;
         /** @type {ToolInvocationResult} */
         const result = {
             invocations: [],
@@ -816,6 +823,7 @@ export class ToolManager {
                         error: true,
                         signature: toolCall.signature || null,
                         reasoning: reasoningText || null,
+                        reasoning_blocks: turnReasoningBlocks,
                     });
                 }
                 continue;
@@ -836,6 +844,7 @@ export class ToolManager {
                 error: false,
                 signature: toolCall.signature || null,
                 reasoning: reasoningText || null,
+                reasoning_blocks: turnReasoningBlocks,
             };
             result.invocations.push(invocation);
         }

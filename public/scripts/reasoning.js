@@ -167,6 +167,37 @@ export function extractReasoningFromData(data, {
 }
 
 /**
+ * Extracts verbatim reasoning blocks from the response data.
+ *
+ * Unlike the reasoning text, these are kept exactly as the API returned them — signatures
+ * included — so they can be replayed to maintain interleaved thinking across tool calls.
+ * Only Claude returns signed reasoning blocks.
+ * @param {any} data Response data
+ * @param {object} [options] Optional parameters
+ * @param {string|null} [options.mainApi] Override for main API
+ * @param {string|null} [options.chatCompletionSource] Override for chat completion source
+ * @returns {object[]} Verbatim reasoning blocks, empty if the source doesn't provide any
+ */
+export function extractReasoningBlocksFromData(data, {
+    mainApi = null,
+    chatCompletionSource = null,
+} = {}) {
+    if ((mainApi ?? main_api) !== 'openai') {
+        return [];
+    }
+
+    if ((chatCompletionSource ?? oai_settings.chat_completion_source) !== chat_completion_sources.CLAUDE) {
+        return [];
+    }
+
+    if (!Array.isArray(data?.content)) {
+        return [];
+    }
+
+    return data.content.filter(part => part?.type === 'thinking' || part?.type === 'redacted_thinking');
+}
+
+/**
  * Extracts encrypted reasoning signature from the response data.
  * These signatures are used to maintain reasoning context across multi-turn conversations.
  * @param {object} data Response data
