@@ -4981,10 +4981,10 @@ async function sendMessage(prompt, image, generationType, additionalNegativePref
     /** @type {ChatMessage} */
     const message = {
         name: name,
-        is_user: false,
-        is_system: !getVisibilityByInitiator(initiator),
+        is_user: true,
+        is_system: false,
         send_date: getMessageTimeStamp(),
-        mes: messageText,
+        mes: " ",
         extra: {
             media: [mediaAttachment],
             media_display: MEDIA_DISPLAY.GALLERY,
