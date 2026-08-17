@@ -380,6 +380,7 @@ export const settingsToUpdate = {
     personality_format: ['#personality_format_textarea', 'personality_format', false, false],
     group_nudge_prompt: ['#group_nudge_prompt_textarea', 'group_nudge_prompt', false, false],
     stream_openai: ['#stream_toggle', 'stream_openai', true, false],
+    caching_at_depth: ['#caching_at_depth', 'caching_at_depth', false, false],
     prompts: ['', 'prompts', false, false],
     prompt_order: ['', 'prompt_order', false, false],
     show_external_models: ['#openai_show_external_models', 'show_external_models', true, true],
@@ -425,6 +426,7 @@ const default_settings = {
     top_a_openai: 0,
     repetition_penalty_openai: 1,
     stream_openai: false,
+    caching_at_depth: -1,
     openai_max_context: max_4k,
     openai_max_tokens: 300,
     ...chatCompletionDefaultPrompts,
@@ -2846,6 +2848,7 @@ export async function createGenerationParameters(settings, model, type, messages
     if (settings.chat_completion_source === chat_completion_sources.CLAUDE) {
         generate_data.top_k = Number(settings.top_k_openai);
         generate_data.use_sysprompt = settings.use_sysprompt;
+        generate_data.caching_at_depth = Number(settings.caching_at_depth);
         generate_data.stop = getCustomStoppingStrings(); // Claude shouldn't have limits on stop strings.
         // Don't add a prefill on quiet gens (summarization) and when using continue prefill.
         if (type !== 'quiet' && !(type === 'continue' && settings.continue_prefill)) {
@@ -2865,6 +2868,7 @@ export async function createGenerationParameters(settings, model, type, messages
         generate_data.quantizations = settings.openrouter_quantizations;
         generate_data.allow_fallbacks = settings.openrouter_allow_fallbacks;
         generate_data.middleout = settings.openrouter_middleout;
+        generate_data.caching_at_depth = Number(settings.caching_at_depth);
     }
 
     if (settings.chat_completion_source === chat_completion_sources.NANOGPT) {
@@ -6833,6 +6837,12 @@ export function initOpenAI() {
 
     $('#stream_toggle').on('change', function () {
         oai_settings.stream_openai = !!$('#stream_toggle').prop('checked');
+        saveSettingsDebounced();
+    });
+
+    $('#caching_at_depth').on('input', function () {
+        oai_settings.caching_at_depth = Number($(this).val());
+        $('#caching_at_depth_counter').val(Number($(this).val()));
         saveSettingsDebounced();
     });
 

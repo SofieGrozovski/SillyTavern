@@ -697,6 +697,27 @@
                                         </span>
                                     </div>
                                 </div>
+                                <div class="range-block" data-source="claude,openrouter">
+                                    <div class="range-block-title" data-i18n="Cache at Depth">
+                                        Cache at Depth
+                                    </div>
+                                    <div class="range-block-range-and-counter">
+                                        <div class="range-block-range">
+                                            <input type="range" id="caching_at_depth" name="volume" min="-1" max="8" step="1">
+                                        </div>
+                                        <div class="range-block-counter">
+                                            <input type="number" min="-1" max="8" step="1" data-for="caching_at_depth" id="caching_at_depth_counter">
+                                        </div>
+                                    </div>
+                                    <div class="toggle-description justifyLeft">
+                                        <span data-i18n="Places a Claude prompt cache breakpoint at the given depth, counted in message role switches from the end of the prompt.">
+                                            Places a Claude prompt cache breakpoint at the given depth, counted in message role switches from the end of the prompt.
+                                        </span><br>
+                                        <span data-i18n="Set to -1 to disable. Cache TTL and system prompt caching are configured in config.yaml.">
+                                            Set to -1 to disable. Cache TTL and system prompt caching are configured in config.yaml.
+                                        </span>
+                                    </div>
+                                </div>
                                 <div class="range-block" data-source="openai,claude,aimlapi,openrouter,ai21,makersuite,vertexai,mistralai,custom,cohere,perplexity,groq,siliconflow,minimax,electronhub,chutes,nanogpt,deepseek,xai,pollinations,moonshot,fireworks,cometapi,azure_openai,zai,workers_ai">
                                     <div class="range-block-title" data-i18n="Temperature">
                                         Temperature

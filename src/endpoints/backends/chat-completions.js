@@ -106,6 +106,24 @@ const cachingAtDepth = (() => {
     const value = getConfigValue('claude.cachingAtDepth', -1, 'number');
     return Number.isInteger(value) && value >= 0 ? value : -1;
 })();
+
+/**
+ * Resolves the caching depth for a request. A value sent by the client (stored in the chat completion
+ * preset) takes precedence over the global config value, which is only used as a fallback for clients
+ * that don't send one at all.
+ * @param {express.Request} request Express request
+ * @returns {number} Depth to cache at, or -1 if caching at depth is disabled
+ */
+function getCachingAtDepth(request) {
+    const value = request.body.caching_at_depth;
+
+    if (value === undefined || value === null || value === '') {
+        return cachingAtDepth;
+    }
+
+    const depth = Number(value);
+    return Number.isInteger(depth) && depth >= 0 ? depth : -1;
+}
 const enableAdaptiveThinking = getConfigValue('claude.enableAdaptiveThinking', true, 'boolean');
 
 /**
@@ -303,11 +321,13 @@ async function sendClaudeRequest(request, response) {
             requestBody.tools = [...webSearchTool, ...(requestBody.tools || [])];
         }
 
-        if (cachingAtDepth !== -1) {
-            cachingAtDepthForClaude(convertedPrompt.messages, cachingAtDepth, cacheTTL);
+        const cachingDepth = getCachingAtDepth(request);
+
+        if (cachingDepth !== -1) {
+            cachingAtDepthForClaude(convertedPrompt.messages, cachingDepth, cacheTTL);
         }
 
-        if (enableSystemPromptCache || cachingAtDepth !== -1) {
+        if (enableSystemPromptCache || cachingDepth !== -1) {
             betaHeaders.push('prompt-caching-2024-07-31');
             betaHeaders.push('extended-cache-ttl-2025-04-11');
         }
@@ -1432,8 +1452,9 @@ async function sendElectronHubRequest(request, response) {
                 cachingSystemPromptForOpenRouter(request.body.messages, cacheTTL);
             }
 
-            if (cachingAtDepth !== -1) {
-                cachingAtDepthForOpenRouterClaude(request.body.messages, cachingAtDepth, cacheTTL);
+            const cachingDepth = getCachingAtDepth(request);
+            if (cachingDepth !== -1) {
+                cachingAtDepthForOpenRouterClaude(request.body.messages, cachingDepth, cacheTTL);
             }
         }
 
@@ -2328,8 +2349,9 @@ router.post('/generate', async function (request, response) {
                         cachingSystemPromptForOpenRouter(request.body.messages, cacheTTL);
                     }
 
-                    if (cachingAtDepth !== -1) {
-                        cachingAtDepthForOpenRouterClaude(request.body.messages, cachingAtDepth, cacheTTL);
+                    const cachingDepth = getCachingAtDepth(request);
+                    if (cachingDepth !== -1) {
+                        cachingAtDepthForOpenRouterClaude(request.body.messages, cachingDepth, cacheTTL);
                     }
                 }
 
