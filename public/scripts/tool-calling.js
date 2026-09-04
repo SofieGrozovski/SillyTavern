@@ -693,7 +693,7 @@ export class ToolManager {
      * @param {any} data Response data
      * @returns {any[]} Tool calls from the response data
      */
-    static #getToolCallsFromData(data) {
+    static getToolCallsFromData(data) {
         const getRandomId = () => Math.random().toString(36).substring(2);
         const isClaudeToolCall = c => Array.isArray(c) ? c.filter(x => x).every(isClaudeToolCall) : c?.input && c?.name && c?.id;
         const isGoogleToolCall = c => Array.isArray(c) ? c.filter(x => x).every(isGoogleToolCall) : c?.name && c?.args;
@@ -763,7 +763,7 @@ export class ToolManager {
      * @returns {boolean} Whether the response data contains tool calls
      */
     static hasToolCalls(data) {
-        const toolCalls = ToolManager.#getToolCallsFromData(data);
+        const toolCalls = ToolManager.getToolCallsFromData(data);
         return Array.isArray(toolCalls) && toolCalls.length > 0;
     }
 
@@ -785,7 +785,7 @@ export class ToolManager {
             errors: [],
             stealthCalls: [],
         };
-        const toolCalls = ToolManager.#getToolCallsFromData(data);
+        const toolCalls = ToolManager.getToolCallsFromData(data);
 
         if (!Array.isArray(toolCalls)) {
             return result;
