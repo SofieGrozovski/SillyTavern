@@ -4149,6 +4149,7 @@ export class ChatCompletion {
                     ...(item.role === 'tool' ? { tool_call_id: item.identifier } : {}),
                     ...(item.signature ? { signature: item.signature } : {}),
                     ...(item.reasoning ? { reasoning: item.reasoning } : {}),
+                    ...(item.reasoning_blocks?.length ? { reasoning_blocks: item.reasoning_blocks } : {}),
                 };
                 chat.push(message);
             } else {
