@@ -51,7 +51,8 @@ router.post('/caption-image', async (request, response) => {
 
         /** @type {any} */
         const generateResponseJson = await result.json();
-        const caption = generateResponseJson.content[0].text;
+        // Models with thinking always on (e.g. Opus 5.5) can lead with a thinking block.
+        const caption = generateResponseJson.content?.find(block => block.type === 'text')?.text;
         console.debug('Claude response:', generateResponseJson);
 
         if (!caption) {

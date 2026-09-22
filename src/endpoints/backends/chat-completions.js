@@ -269,6 +269,7 @@ async function sendClaudeRequest(request, response) {
         // Unanchored to also match prefixed ids passed through proxies, e.g. 'anthropic/claude-fable-5'
         const isFableModel = /claude-fable/.test(request.body.model);
         const isFable51Model = /claude-fable-5-1/.test(request.body.model);
+        const isOpus55Model = /claude-opus-5-5/.test(request.body.model);
         const isClaude5Model = /claude-(opus-5|sonnet-5)/.test(request.body.model);
         const useThinking = /^claude-(3-7|opus-4|sonnet-4|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7)/.test(request.body.model) || isFableModel || isClaude5Model;
         const useWebSearch = (/^claude-(3-5|3-7|opus-4|sonnet-4|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7)/.test(request.body.model) || isFableModel || isClaude5Model) && Boolean(request.body.enable_web_search);
@@ -319,9 +320,9 @@ async function sendClaudeRequest(request, response) {
             }
         }
 
-        // Fable 5.1 rejects forced tools, but supports native JSON outputs.
+        // Fable 5.1 and Opus 5.5 reject forced tools, but support native JSON outputs.
         if (request.body.json_schema) {
-            if (isFable51Model) {
+            if (isFable51Model || isOpus55Model) {
                 requestBody.output_config = {
                     format: {
                         type: 'json_schema',
@@ -421,6 +422,19 @@ async function sendClaudeRequest(request, response) {
 
         if ((fixThinkingPrefill || noPrefillModel) && convertedPrompt.messages.length && convertedPrompt.messages[convertedPrompt.messages.length - 1].role === 'assistant') {
             convertedPrompt.messages[convertedPrompt.messages.length - 1].role = 'user';
+        }
+
+        // Fable 5.1 and Opus 5.5 bind thinking blocks to the exact prompt prefix that produced them, and reject
+        // a replayed block once anything before it changed (macros, lorebook entries, edited messages).
+        // Ask the API to drop such blocks instead. Thinking is always on for these models, so an omitted
+        // thinking config is the same as adaptive.
+        const hasThinkingBlocks = /** @type {any[]} */ (convertedPrompt.messages).some(message => Array.isArray(message.content)
+            && message.content.some(c => c?.type === 'thinking' || c?.type === 'redacted_thinking'));
+        if ((isFable51Model || isOpus55Model) && hasThinkingBlocks) {
+            const body = /** @type {any} */ (requestBody);
+            body.thinking ??= { type: 'adaptive' };
+            body.thinking.block_binding = { prefix_mismatch_behavior: 'drop_block' };
+            betaHeaders.push('thinking-binding-controls-2026-08-01');
         }
 
         // Replayed thinking blocks are only accepted on assistant turns while thinking is enabled.
