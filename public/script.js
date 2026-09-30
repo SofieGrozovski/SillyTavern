@@ -603,7 +603,8 @@ export let online_status = 'no_connection';
 export let is_send_press = false; //Send generation
 export const isGenerating = () => (is_send_press || is_group_generating);
 
-let this_del_mes = -1;
+/** @type {Set<number>} */
+const selectedMessageIdsForDeletion = new Set();
 let deleteToolCallsInDeleteMode = true;
 
 /** @type {string} */
@@ -2683,6 +2684,12 @@ export function updateMessageElement(mes, { messageId = chat.length - 1, message
 
     if (Array.isArray(mes?.extra?.tool_invocations)) {
         messageElement.addClass('toolCall');
+    }
+
+    if (is_delete_mode) {
+        const selected = selectedMessageIdsForDeletion.has(messageId);
+        messageElement.toggleClass('selected', selected);
+        messageElement.children('.del_checkbox').prop('checked', selected);
     }
 
     updateMessageItemizedPromptButton(mes, { messageId, messageElement });
@@ -8201,26 +8208,40 @@ function updateMessage(div) {
 }
 
 function openMessageDelete(fromSlashCommand, deleteToolCalls = true) {
+    if (!fromSlashCommand && isGenerating()) {
+        return;
+    }
+
     closeMessageEditor();
     hideSwipeButtons();
-    if (fromSlashCommand || (!is_send_press) || (selected_group && !is_group_generating)) {
-        $('#dialogue_del_mes').css('display', 'block');
-        $('#send_form').css('display', 'none');
-        $('.del_checkbox').each(function () {
-            $(this).css('display', 'grid');
-            $(this).parent().children('.for_checkbox').css('display', 'none');
-        });
-    } else {
-        console.debug(`
-            ERR -- could not enter del mode
-            this_chid: ${this_chid}
-            is_send_press: ${is_send_press}
-            selected_group: ${selected_group}
-            is_group_generating: ${is_group_generating}`);
-    }
-    this_del_mes = -1;
+    $('#dialogue_del_mes').css('display', 'block');
+    $('#send_form').css('display', 'none');
+    $('#dialogue_del_mes_mode').val('tail');
+    chatElement.addClass('message-delete-mode');
+    selectedMessageIdsForDeletion.clear();
     deleteToolCallsInDeleteMode = deleteToolCalls;
     is_delete_mode = true;
+    updateMessageDeleteSelection();
+}
+
+function updateMessageDeleteSelection() {
+    chatElement.children('.mes').each(function () {
+        const selected = selectedMessageIdsForDeletion.has(Number($(this).attr('mesid')));
+        $(this).toggleClass('selected', selected);
+        $(this).children('.del_checkbox').prop('checked', selected);
+    });
+    $('#dialogue_del_mes_count').text(t`Selected: ${selectedMessageIdsForDeletion.size}`);
+    $('#dialogue_del_mes_ok').prop('disabled', selectedMessageIdsForDeletion.size === 0);
+}
+
+function closeMessageDelete() {
+    $('#dialogue_del_mes').css('display', 'none');
+    $('#send_form').css('display', css_send_form_display);
+    chatElement.removeClass('message-delete-mode');
+    selectedMessageIdsForDeletion.clear();
+    is_delete_mode = false;
+    updateMessageDeleteSelection();
+    showSwipeButtons();
 }
 
 function messageEditAuto(div) {
@@ -11258,21 +11279,21 @@ jQuery(async function () {
         if (!is_delete_mode || !$(this).children('.del_checkbox').is(':visible')) {
             return;
         }
-        $('.mes').children('.del_checkbox').each(function () {
-            $(this).prop('checked', false);
-            $(this).parent().removeClass('selected');
-        });
-        $(this).addClass('selected'); //sets the bg of the mes selected for deletion
-        var i = Number($(this).attr('mesid')); //checks the message ID in the chat
-        i = getMessageDeletionStartId(i, deleteToolCallsInDeleteMode);
-        this_del_mes = i;
-        //as long as the current message ID is less than the total chat length
-        while (i < chat.length) {
-            //sets the bg of the all msgs BELOW the selected .mes
-            $(`.mes[mesid="${i}"]`).addClass('selected');
-            $(`.mes[mesid="${i}"]`).children('.del_checkbox').prop('checked', true);
-            i++;
+        const messageId = Number($(this).attr('mesid'));
+        if ($('#dialogue_del_mes_mode').val() === 'selected') {
+            if (selectedMessageIdsForDeletion.has(messageId)) {
+                selectedMessageIdsForDeletion.delete(messageId);
+            } else {
+                selectedMessageIdsForDeletion.add(messageId);
+            }
+        } else {
+            selectedMessageIdsForDeletion.clear();
+            const startId = getMessageDeletionStartId(messageId, deleteToolCallsInDeleteMode);
+            for (let i = startId; i < chat.length; i++) {
+                selectedMessageIdsForDeletion.add(i);
+            }
         }
+        updateMessageDeleteSelection();
     });
 
     /**
@@ -11703,52 +11724,37 @@ jQuery(async function () {
 
     //////////////////////////////////////////////////////////////////////////////////////////////
 
-    //functionality for the cancel delete messages button, reverts to normal display of input form
-    $('#dialogue_del_mes_cancel').on('click', function () {
-        $('#dialogue_del_mes').css('display', 'none');
-        $('#send_form').css('display', css_send_form_display);
-        $('.del_checkbox').each(function () {
-            $(this).css('display', 'none');
-            $(this).parent().children('.for_checkbox').css('display', 'block');
-            $(this).parent().removeClass('selected');
-            $(this).prop('checked', false);
-        });
-        showSwipeButtons();
-        this_del_mes = -1;
-        is_delete_mode = false;
+    $('#dialogue_del_mes_mode').on('change', function () {
+        selectedMessageIdsForDeletion.clear();
+        updateMessageDeleteSelection();
     });
 
-    //confirms message deletion with the "ok" button
-    $('#dialogue_del_mes_ok').on('click', async function () {
-        $('#dialogue_del_mes').css('display', 'none');
-        $('#send_form').css('display', css_send_form_display);
-        $('.del_checkbox').each(function () {
-            $(this).css('display', 'none');
-            $(this).parent().children('.for_checkbox').css('display', 'block');
-            $(this).parent().removeClass('selected');
-            $(this).prop('checked', false);
-        });
+    $('#dialogue_del_mes_cancel').on('click', closeMessageDelete);
 
-        if (this_del_mes >= 0) {
-            for (let i = (chat.length - 1); i >= this_del_mes; i--) {
-                deleteItemizedPromptForMessage(i);
-            }
-            chatElement.find(`.mes[mesid="${this_del_mes}"]`).nextAll('div').remove();
-            chatElement.find(`.mes[mesid="${this_del_mes}"]`).remove();
-            chat.length = this_del_mes;
-            chat_metadata.tainted = true;
-            await saveChatConditional();
-            chatElement.scrollTop(chatElement[0].scrollHeight);
-            await eventSource.emit(event_types.MESSAGE_DELETED, chat.length);
-            chatElement.find('.mes').removeClass('last_mes');
-            chatElement.find('.mes').last().addClass('last_mes');
-        } else {
-            console.log('this_del_mes is not >= 0, not deleting');
+    $('#dialogue_del_mes_ok').on('click', async function () {
+        if (!is_delete_mode || selectedMessageIdsForDeletion.size === 0) {
+            return;
         }
 
-        showSwipeButtons();
-        this_del_mes = -1;
-        is_delete_mode = false;
+        const deleteTail = $('#dialogue_del_mes_mode').val() === 'tail';
+        const oldScroll = chatElement.scrollTop();
+        const firstDisplayedId = getFirstDisplayedMessageId();
+        const messageIds = [...selectedMessageIdsForDeletion].sort((a, b) => b - a);
+        const deletedBeforeView = messageIds.filter(id => id < firstDisplayedId).length;
+
+        // Delete from the end so both chat and itemized prompt indices remain stable.
+        for (const messageId of messageIds) {
+            chat.splice(messageId, 1);
+            chatElement.children(`.mes[mesid="${messageId}"]`).remove();
+            deleteItemizedPromptForMessage(messageId);
+        }
+
+        chat_metadata.tainted = true;
+        updateViewMessageIds(firstDisplayedId - deletedBeforeView);
+        closeMessageDelete();
+        chatElement.scrollTop(deleteTail ? chatElement[0].scrollHeight : oldScroll);
+        await saveChatConditional();
+        await eventSource.emit(event_types.MESSAGE_DELETED, chat.length);
     });
 
     $('#main_api').on('change', async function () {

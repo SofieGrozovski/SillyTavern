@@ -3818,6 +3818,25 @@ grammarly-extension {
     cursor: pointer;
 }
 
+#dialogue_del_mes_controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 5px 10px;
+}
+
+#dialogue_del_mes_mode {
+    width: auto;
+    max-width: 100%;
+    margin: 0;
+}
+
+#dialogue_del_mes_ok:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
 #dialogue_del_mes_cancel {
     display: inline-block;
     cursor: pointer;
@@ -4097,6 +4116,14 @@ input[type='checkbox'].del_checkbox {
     opacity: 0.7;
     margin-top: 12px;
     margin-right: 12px;
+}
+
+#chat.message-delete-mode .del_checkbox {
+    display: grid;
+}
+
+#chat.message-delete-mode .for_checkbox {
+    display: none;
 }
 
 

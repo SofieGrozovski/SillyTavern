@@ -2754,5 +2754,9 @@
     "Deleting chat…": "Удаление чата…",
     "Loading chat…": "Загрузка чата…",
     "Bulk Delete": "Массовое удаление",
-    "Deleting ${0} character(s)…": "Удаление ${0} персонажа(ей)…"
+    "Deleting ${0} character(s)…": "Удаление ${0} персонажа(ей)…",
+    "Deletion mode": "Режим удаления",
+    "From selected to end": "От выбранного до конца",
+    "Selected messages only": "Только выбранные сообщения",
+    "Selected: ${0}": "Выбрано: ${0}"
 }

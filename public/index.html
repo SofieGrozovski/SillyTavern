@@ -8111,8 +8111,16 @@
         </div>
         <div id="form_sheld">
             <div id="dialogue_del_mes">
-                <div id="dialogue_del_mes_ok" data-i18n="Delete" class="menu_button">Delete</div>
-                <div id="dialogue_del_mes_cancel" data-i18n="Cancel" class="menu_button">Cancel</div>
+                <div id="dialogue_del_mes_controls">
+                    <label for="dialogue_del_mes_mode" data-i18n="Deletion mode">Deletion mode</label>
+                    <select id="dialogue_del_mes_mode">
+                        <option value="tail" data-i18n="From selected to end">From selected to end</option>
+                        <option value="selected" data-i18n="Selected messages only">Selected messages only</option>
+                    </select>
+                    <span id="dialogue_del_mes_count" aria-live="polite"></span>
+                </div>
+                <button type="button" id="dialogue_del_mes_ok" data-i18n="Delete" class="menu_button" disabled>Delete</button>
+                <button type="button" id="dialogue_del_mes_cancel" data-i18n="Cancel" class="menu_button">Cancel</button>
             </div>
             <div id="send_form" class="no-connection">
                 <form id="file_form" class="wide100p displayNone">
