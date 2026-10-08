@@ -270,7 +270,9 @@ async function sendClaudeRequest(request, response) {
         const isFableModel = /claude-fable/.test(request.body.model);
         const isFable51Model = /claude-fable-5-1/.test(request.body.model);
         const isOpus55Model = /claude-opus-5-5/.test(request.body.model);
-        const isClaude5Model = /claude-(opus-5|sonnet-5)/.test(request.body.model);
+        const isSonnet55Model = /claude-sonnet-5-5/.test(request.body.model);
+        const isHaiku55Model = /claude-haiku-5-5/.test(request.body.model);
+        const isClaude5Model = /claude-(opus-5|sonnet-5|haiku-5)/.test(request.body.model);
         const useThinking = /^claude-(3-7|opus-4|sonnet-4|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7)/.test(request.body.model) || isFableModel || isClaude5Model;
         const useWebSearch = (/^claude-(3-5|3-7|opus-4|sonnet-4|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7)/.test(request.body.model) || isFableModel || isClaude5Model) && Boolean(request.body.enable_web_search);
         const isLimitedSampling = /^claude-(opus-4-1|sonnet-4-5|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6)/.test(request.body.model);
@@ -320,9 +322,9 @@ async function sendClaudeRequest(request, response) {
             }
         }
 
-        // Fable 5.1 and Opus 5.5 reject forced tools, but support native JSON outputs.
+        // Fable 5.1, Opus 5.5 and Sonnet 5.5 reject forced tools, but support native JSON outputs.
         if (request.body.json_schema) {
-            if (isFable51Model || isOpus55Model) {
+            if (isFable51Model || isOpus55Model || isSonnet55Model) {
                 requestBody.output_config = {
                     format: {
                         type: 'json_schema',
@@ -424,13 +426,13 @@ async function sendClaudeRequest(request, response) {
             convertedPrompt.messages[convertedPrompt.messages.length - 1].role = 'user';
         }
 
-        // Fable 5.1 and Opus 5.5 bind thinking blocks to the exact prompt prefix that produced them, and reject
+        // Fable 5.1 and Claude 5.5 models bind thinking blocks to the exact prompt prefix that produced them, and reject
         // a replayed block once anything before it changed (macros, lorebook entries, edited messages).
-        // Ask the API to drop such blocks instead. Thinking is always on for these models, so an omitted
+        // Ask the API to drop such blocks instead. Thinking is on by default for these models, so an omitted
         // thinking config is the same as adaptive.
         const hasThinkingBlocks = /** @type {any[]} */ (convertedPrompt.messages).some(message => Array.isArray(message.content)
             && message.content.some(c => c?.type === 'thinking' || c?.type === 'redacted_thinking'));
-        if ((isFable51Model || isOpus55Model) && hasThinkingBlocks) {
+        if ((isFable51Model || isOpus55Model || isSonnet55Model || isHaiku55Model) && hasThinkingBlocks) {
             const body = /** @type {any} */ (requestBody);
             body.thinking ??= { type: 'adaptive' };
             body.thinking.block_binding = { prefix_mismatch_behavior: 'drop_block' };
