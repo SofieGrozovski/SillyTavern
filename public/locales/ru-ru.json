@@ -2126,6 +2126,7 @@
     "instruct_derived": "Считывать из метаданных модели (по возможности)",
     "Confirm token parsing with": "Чтобы убедиться в правильности выделения токенов, используйте",
     "Reasoning Effort": "Рассуждения",
+    "Gemini 4 Argon supports low, medium (default), and high reasoning. Minimum maps to low; Extra High and Maximum map to high.": "Gemini 4 Argon поддерживает поверхностные, обычные (по умолчанию) и подробные рассуждения. Минимальный уровень соответствует поверхностным, Extra High и максимальный — подробным.",
     "Constrains effort on reasoning for reasoning models.": "Регулирует объём внутренних рассуждений модели (reasoning), для моделей, которые поддерживают эту возможность.\nПри менее подробном рассуждении ответ получается быстрее, а также экономятся токены, уходящие на рассуждения.",
     "openai_reasoning_effort_low": "Поверхностные",
     "openai_reasoning_effort_medium": "Обычные",

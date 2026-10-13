@@ -276,7 +276,9 @@ router.post('/caption-image', async (request, response) => {
             return response.status(500).send('No candidates found, image was most likely filtered.');
         }
 
-        const caption = candidates[0].content.parts[0].text;
+        const caption = candidates[0]?.content?.parts
+            ?.filter(part => !part.thought && typeof part.text === 'string')
+            .map(part => part.text).join('');
         if (!caption) {
             return response.status(500).send('No caption found');
         }

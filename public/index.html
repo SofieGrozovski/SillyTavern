@@ -2209,6 +2209,9 @@
                                                 Selects an effort level on adaptive-thinking models. Extra High requires Opus 4.7 or newer and falls back to High elsewhere. On older Claude models, it allocates a portion of the response length to thinking. Auto does not request thinking.
                                             </div>
                                             <div class="toggle-description justifyLeft marginBot5" data-source="makersuite,vertexai">
+                                                <span data-i18n="Gemini 4 Argon supports low, medium (default), and high reasoning. Minimum maps to low; Extra High and Maximum map to high.">
+                                                    Gemini 4 Argon supports low, medium (default), and high reasoning. Minimum maps to low; Extra High and Maximum map to high.
+                                                </span><br>
                                                 <span data-i18n="Sets a dynamic reasoning depth level for thinking (Flash 3/Pro 3). High and low are supported by both, minimal and medium are Flash 3 only. Auto lets the model decide.">
                                                     Sets a dynamic reasoning depth level for thinking (Flash 3/Pro 3). High and low are supported by both, minimal and medium are Flash 3 only. Auto lets the model decide.
                                                 </span>
@@ -3343,6 +3346,9 @@
                             <div>
                                 <h4 data-i18n="Google Model">Google Model</h4>
                                 <select id="model_google_select">
+                                    <optgroup label="Gemini 4">
+                                        <option value="gemini-4-argon">gemini-4-argon</option>
+                                    </optgroup>
                                     <optgroup label="Gemini 3.8">
                                         <option value="gemini-3.8-flash">gemini-3.8-flash</option>
                                     </optgroup>
@@ -3516,6 +3522,9 @@
                                 <h4 data-i18n="Google Model">Google Model</h4>
                                 <select id="model_vertexai_select">
                                     <!-- data-mode="full" is for models that require a service account -->
+                                    <optgroup label="Gemini 4">
+                                        <option value="gemini-4-argon">gemini-4-argon</option>
+                                    </optgroup>
                                     <optgroup label="Gemini 3.8">
                                         <option value="gemini-3.8-flash">gemini-3.8-flash</option>
                                     </optgroup>

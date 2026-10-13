@@ -585,10 +585,11 @@ async function sendMakerSuiteRequest(request, response) {
             'gemini-3.1-flash-image',
         ];
 
-        const isThinkingConfigModel = m => (/^gemini-2.5-(flash|pro)/.test(m) && !/-image(-preview)?$/.test(m)) || (/^gemini-3[.\d]*-(flash|pro)/.test(m));
+        const isArgonModel = /gemini-4-argon/.test(model);
+        const isThinkingConfigModel = m => (/^gemini-2.5-(flash|pro)/.test(m) && !/-image(-preview)?$/.test(m)) || (/^gemini-3[.\d]*-(flash|pro)/.test(m)) || isArgonModel;
         const isImageSizeModel = m => /^gemini-3/.test(m);
         // https://ai.google.dev/gemini-api/docs/latest-model#api-changes-and-parameter-updates
-        const noSamplingModel = /gemini-3\.[678]-flash|gemini-3\.5-flash-lite/.test(model);
+        const noSamplingModel = /gemini-3\.[678]-flash|gemini-3\.5-flash-lite/.test(model) || isArgonModel;
 
         const noSearchModels = [
             'gemini-2.0-flash-lite',
@@ -607,6 +608,17 @@ async function sendMakerSuiteRequest(request, response) {
             delete generationConfig.topP;
             delete generationConfig.topK;
             delete generationConfig.candidateCount;
+        }
+
+        if (isArgonModel) {
+            // Direct REST calls support 32K output tokens, or 64K when streaming.
+            // Longer output requires the separate long-decode continuation protocol.
+            // https://ai.google.dev/gemini-api/docs/generate-content/long-decode
+            const maxOutputTokens = stream ? 65536 : 32768;
+            if (generationConfig.maxOutputTokens > maxOutputTokens) {
+                console.warn(`${apiName}: limiting Gemini 4 Argon output to ${maxOutputTokens} tokens per request.`);
+                generationConfig.maxOutputTokens = maxOutputTokens;
+            }
         }
 
         const enableImageModality = requestImages && imageGenerationModels.includes(model);
