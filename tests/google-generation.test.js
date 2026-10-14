@@ -104,6 +104,97 @@ describe.each(['makersuite', 'vertexai'])('Gemini 4 Argon requests through %s', 
         expect(body.generationConfig.responseSchema).toEqual(schema);
     });
 
+    test.each([false, true])('preserves JSON Schema tool constraints with stream=%s', async stream => {
+        // Reproduces the schema shapes rejected in Vertex's protobuf Schema field:
+        // Illustrator's unique image/reference lists and an integer enum.
+        const tools = [{
+            type: 'function',
+            function: {
+                name: 'illustrate',
+                description: 'Illustrate the scene',
+                strict: true,
+                parameters: {
+                    $schema: 'https://json-schema.org/draft/2020-12/schema',
+                    type: 'object',
+                    properties: {
+                        prompt: { type: 'string' },
+                        chat_images: { type: 'array', items: { type: 'string' }, uniqueItems: true },
+                        edit: { type: 'boolean' },
+                        references: { type: 'array', items: { type: 'string' }, uniqueItems: true },
+                    },
+                    required: ['prompt'],
+                    additionalProperties: false,
+                },
+            },
+        }, {
+            type: 'function',
+            function: {
+                name: 'set_rating',
+                parameters: {
+                    type: 'object',
+                    properties: { rating: { type: 'integer', enum: [1, 2, 3, 4, 5] } },
+                    required: ['rating'],
+                },
+            },
+        }];
+        const original = structuredClone(tools);
+        const { body } = await invoke(generate, { chat_completion_source: provider, stream, tools });
+        const declarations = body.tools[0].function_declarations;
+        const expectedImageSchema = structuredClone(original[0].function.parameters);
+        delete expectedImageSchema.$schema;
+        expect(declarations[0]).toEqual({
+            name: 'illustrate', description: 'Illustrate the scene', parametersJsonSchema: expectedImageSchema,
+        });
+        expect(declarations[1]).toEqual({ name: 'set_rating', parametersJsonSchema: original[1].function.parameters });
+        expect(tools).toEqual(original);
+    });
+
+    test('preserves nested references, nullable types and schema-keyword property names', async () => {
+        const parameters = {
+            type: 'object',
+            $defs: { choice: { type: ['integer', 'null'], enum: [1, 2, null] } },
+            properties: {
+                groups: { type: 'array', items: { type: 'object', properties: { choice: { $ref: '#/$defs/choice' } } } },
+                uniqueItems: { type: 'boolean' },
+                enum: { type: 'string' },
+                default: { type: 'string' },
+            },
+        };
+        const { body } = await invoke(generate, {
+            chat_completion_source: provider,
+            tools: [{ type: 'function', function: { name: 'nested', parameters } }],
+        });
+        expect(body.tools[0].function_declarations[0]).toEqual({ name: 'nested', parametersJsonSchema: parameters });
+    });
+
+    test.each([undefined, { type: 'object', properties: {} }])('supports a parameterless tool with schema %j', async parameters => {
+        const { body } = await invoke(generate, {
+            chat_completion_source: provider,
+            tools: [{ type: 'function', function: { name: 'get_time', parameters } }],
+        });
+        const declaration = body.tools[0].function_declarations[0];
+        expect(declaration.name).toBe('get_time');
+        expect(declaration).not.toHaveProperty('parameters');
+        expect(declaration.parametersJsonSchema).toEqual(parameters);
+    });
+
+    test('uses an explicit native schema without also sending parameters', async () => {
+        const parametersJsonSchema = { type: 'object', properties: { value: { type: 'number', enum: [0.5, 1.5] } } };
+        const { body } = await invoke(generate, {
+            chat_completion_source: provider,
+            tools: [{ type: 'function', function: { name: 'native', parametersJsonSchema, parameters: { type: 'object' } } }],
+        });
+        expect(body.tools[0].function_declarations[0]).toEqual({ name: 'native', parametersJsonSchema });
+    });
+
+    test('keeps Google built-in tools unchanged', async () => {
+        const { body } = await invoke(generate, {
+            chat_completion_source: provider,
+            tools: [{ type: 'google_search', google_search: {} }],
+        });
+        expect(body.tools).toEqual([{ google_search: {} }]);
+    });
+
     test('preserves signed tool history and supplies a fallback for imported calls', async () => {
         const call = (id, signature) => ({ id, type: 'function', function: { name: 'lookup', arguments: '{"query":"x"}' }, signature });
         const { body } = await invoke(generate, {

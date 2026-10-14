@@ -647,13 +647,15 @@ async function sendMakerSuiteRequest(request, response) {
             const customTools = [];
             for (const tool of request.body.tools) {
                 if (tool.type === 'function') {
-                    if (tool.function.parameters?.$schema) {
-                        delete tool.function.parameters.$schema;
-                    }
-                    if (tool.function.parameters?.properties && Object.keys(tool.function.parameters.properties).length === 0) {
-                        delete tool.function.parameters;
-                    }
-                    functionDeclarations.push(tool.function);
+                    // JSON Schema belongs in parametersJsonSchema. The protobuf Schema
+                    // in parameters rejects keywords such as uniqueItems and numeric enums.
+                    // https://ai.google.dev/api/generate-content#FunctionDeclaration
+                    const declaration = structuredClone(tool.function);
+                    declaration.parametersJsonSchema ??= declaration.parameters;
+                    delete declaration.parameters;
+                    delete declaration.parametersJsonSchema?.$schema;
+                    delete declaration.strict; // OpenAI-only function metadata
+                    functionDeclarations.push(declaration);
                 } else if (tool[tool.type]) {
                     customTools.push({ [tool.type]: tool[tool.type] });
                 }
