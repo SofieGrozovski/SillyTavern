@@ -1150,6 +1150,50 @@ describe('convertGooglePrompt', () => {
         expect(funcResp.functionResponse.name).toBe('search');
     });
 
+    test.each(['gemini-4-argon', 'gemini-3.8-flash', 'gemini-2.5-pro'])('separates tool responses from following text on %s', model => {
+        const messages = [
+            { role: 'user', content: 'Look up both records' },
+            { role: 'assistant', tool_calls: [
+                { id: 'tc1', function: { name: 'search', arguments: '{}' } },
+                { id: 'tc2', function: { name: 'lookup', arguments: '{}' } },
+            ] },
+            { role: 'tool', tool_call_id: 'tc1', content: 'First result' },
+            { role: 'tool', tool_call_id: 'tc2', content: 'Second result' },
+            { role: 'system', content: 'Updated context' },
+            { role: 'user', content: 'My next question' },
+        ];
+        const { contents } = mod.convertGooglePrompt(messages, model, false, names);
+        expect(contents.map(content => content.role)).toEqual(['user', 'model', 'user', 'user']);
+        expect(contents[2].parts).toEqual([
+            { functionResponse: { name: 'search', response: { name: 'search', content: 'First result' } } },
+            { functionResponse: { name: 'lookup', response: { name: 'lookup', content: 'Second result' } } },
+        ]);
+        expect(contents[3].parts).toEqual([{ text: 'Updated context\n\nMy next question' }]);
+    });
+
+    test('separates mixed tool responses and user media without reordering parts', () => {
+        const messages = [
+            { role: 'user', content: 'Search' },
+            { role: 'assistant', tool_calls: [
+                { id: 'tc1', function: { name: 'search', arguments: '{}' } },
+            ] },
+            { role: 'user', content: [
+                { type: 'tool_call_id', tool_call_id: 'tc1', content: 'Search result' },
+                { type: 'text', text: 'Describe this image' },
+                { type: 'image_url', image_url: { url: 'data:image/png;base64,aW1hZ2U=', detail: 'high' } },
+            ] },
+        ];
+        const { contents } = mod.convertGooglePrompt(messages, 'gemini-4-argon', false, names);
+        expect(contents.map(content => content.role)).toEqual(['user', 'model', 'user', 'user']);
+        expect(contents[2].parts).toEqual([
+            { functionResponse: { name: 'search', response: { name: 'search', content: 'Search result' } } },
+        ]);
+        expect(contents[3].parts).toEqual([
+            { text: 'Describe this image' },
+            { inlineData: { mimeType: 'image/png', data: 'aW1hZ2U=' }, mediaResolution: { level: 'media_resolution_high' } },
+        ]);
+    });
+
     test('prepends example names when useSysPrompt is true', () => {
         const messages = [
             { role: 'system', name: 'example_assistant', content: 'Greetings' },

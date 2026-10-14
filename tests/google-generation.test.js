@@ -237,6 +237,32 @@ describe.each(['makersuite', 'vertexai'])('Gemini 4 Argon requests through %s', 
         ]);
     });
 
+    test.each([false, true])('keeps user text after tool results in a separate turn with stream=%s', async stream => {
+        const { body } = await invoke(generate, {
+            chat_completion_source: provider,
+            stream,
+            custom_prompt_post_processing: 'semi_tools',
+            messages: [
+                { role: 'user', content: 'Look up the status' },
+                { role: 'assistant', content: [
+                    { type: 'text', text: 'Previous narrative' },
+                ], tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+                { role: 'tool', tool_call_id: 'tc1', content: 'Ready' },
+                { role: 'system', content: 'Current context' },
+                { role: 'user', content: 'New question' },
+            ],
+            tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object', properties: {} } } }],
+        });
+        expect(body.contents.map(content => content.role)).toEqual(['user', 'model', 'user', 'user']);
+        expect(body.contents[1].parts).toContainEqual({
+            functionCall: { name: 'lookup', args: {} }, thoughtSignature: 'skip_thought_signature_validator',
+        });
+        expect(body.contents[2].parts).toEqual([
+            { functionResponse: { name: 'lookup', response: { name: 'lookup', content: 'Ready' } } },
+        ]);
+        expect(body.contents[3].parts).toEqual([{ text: 'Current context\n\nNew question' }]);
+    });
+
     test.each([[false, 32768], [true, 65536]])('limits output for stream=%s to %s tokens', async (stream, limit) => {
         const { url, body } = await invoke(generate, { chat_completion_source: provider, stream, max_tokens: 200000 });
         expect(body.generationConfig.maxOutputTokens).toBe(limit);

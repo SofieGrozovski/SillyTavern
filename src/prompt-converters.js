@@ -609,27 +609,46 @@ export function convertGooglePrompt(messages, model, useSysPrompt, names) {
             });
         }
 
-        // merge consecutive messages with the same role
-        if (index > 0 && message.role === contents[contents.length - 1].role) {
-            parts.forEach((part) => {
-                if (part.text) {
-                    const textPart = contents[contents.length - 1].parts.find(p => typeof p.text === 'string');
-                    if (textPart) {
-                        textPart.text += '\n\n' + part.text;
-                    } else {
-                        contents[contents.length - 1].parts.push(part);
-                    }
-                }
-                if (part.inlineData || part.functionCall || part.functionResponse || part.thoughtSignature || part.mediaResolution) {
-                    contents[contents.length - 1].parts.push(part);
-                }
-            });
-        } else {
-            contents.push({
-                role: message.role,
-                parts: parts,
-            });
+        // Vertex misreads user turns containing functionResponse followed by text/media
+        // as a trailing model turn. Keep tool results separate, preserving their order.
+        const partGroups = [[]];
+        for (const part of parts) {
+            const group = partGroups[partGroups.length - 1];
+            if (message.role === 'user' && group.length && Boolean(group[0].functionResponse) !== Boolean(part.functionResponse)) {
+                partGroups.push([part]);
+            } else {
+                group.push(part);
+            }
         }
+
+        partGroups.forEach((group) => {
+            const lastContent = contents[contents.length - 1];
+            const sameContentType = message.role !== 'user'
+                || Boolean(lastContent?.parts[0]?.functionResponse) === Boolean(group[0]?.functionResponse);
+
+            // Merge matching roles only within the same kind of user turn.
+            // Parallel function responses still belong together.
+            if (lastContent && message.role === lastContent.role && sameContentType) {
+                group.forEach((part) => {
+                    if (part.text) {
+                        const textPart = lastContent.parts.find(p => typeof p.text === 'string');
+                        if (textPart) {
+                            textPart.text += '\n\n' + part.text;
+                        } else {
+                            lastContent.parts.push(part);
+                        }
+                    }
+                    if (part.inlineData || part.functionCall || part.functionResponse || part.thoughtSignature || part.mediaResolution) {
+                        lastContent.parts.push(part);
+                    }
+                });
+            } else {
+                contents.push({
+                    role: message.role,
+                    parts: group,
+                });
+            }
+        });
     });
 
     return { contents: contents, system_instruction: system_instruction };
