@@ -272,6 +272,7 @@ async function sendClaudeRequest(request, response) {
         const isOpus55Model = /claude-opus-5-5/.test(request.body.model);
         const isSonnet55Model = /claude-sonnet-5-5/.test(request.body.model);
         const isHaiku55Model = /claude-haiku-5-5/.test(request.body.model);
+        const noForcedToolsModel = isFable51Model || isOpus55Model || isSonnet55Model;
         const isClaude5Model = /claude-(opus-5|sonnet-5|haiku-5)/.test(request.body.model);
         const useThinking = /^claude-(3-7|opus-4|sonnet-4|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7)/.test(request.body.model) || isFableModel || isClaude5Model;
         const useWebSearch = (/^claude-(3-5|3-7|opus-4|sonnet-4|haiku-4-5|opus-4-5|opus-4-6|sonnet-4-6|opus-4-7)/.test(request.body.model) || isFableModel || isClaude5Model) && Boolean(request.body.enable_web_search);
@@ -311,7 +312,22 @@ async function sendClaudeRequest(request, response) {
         }
         if (useTools) {
             betaHeaders.push('tools-2024-05-16');
-            requestBody.tool_choice = { type: request.body.tool_choice };
+            // Extensions use OpenAI choices; also accept native Claude choices.
+            const toolChoice = request.body.tool_choice ?? 'auto';
+            if (typeof toolChoice === 'object') {
+                requestBody.tool_choice = toolChoice.type === 'function'
+                    ? { type: 'tool', name: toolChoice.function?.name }
+                    : { ...toolChoice };
+            } else {
+                requestBody.tool_choice = { type: toolChoice === 'required' ? 'any' : toolChoice };
+            }
+
+            // These models only accept auto/none. The caller's prompt and tool
+            // result validation still govern which tool should finish the turn.
+            if (noForcedToolsModel && ['any', 'tool'].includes(requestBody.tool_choice.type)) {
+                requestBody.tool_choice.type = 'auto';
+                delete requestBody.tool_choice.name;
+            }
             requestBody.tools = request.body.tools
                 .filter(tool => tool.type === 'function')
                 .map(tool => tool.function)
@@ -324,7 +340,7 @@ async function sendClaudeRequest(request, response) {
 
         // Fable 5.1, Opus 5.5 and Sonnet 5.5 reject forced tools, but support native JSON outputs.
         if (request.body.json_schema) {
-            if (isFable51Model || isOpus55Model || isSonnet55Model) {
+            if (noForcedToolsModel) {
                 requestBody.output_config = {
                     format: {
                         type: 'json_schema',
