@@ -299,3 +299,56 @@ test('Gemini 3.8 retains level-based thinking without Argon output limits', asyn
     expect(body.generationConfig.thinkingConfig.thinkingLevel).toBe('medium');
     expect(body.generationConfig).not.toHaveProperty('temperature');
 });
+
+
+describe.each(['makersuite', 'vertexai'])('Gemini refusal diagnostics through %s', provider => {
+    test('preserves a prompt block and its explanation through Connection Manager', async () => {
+        const promptFeedback = { blockReason: 'SAFETY', blockReasonMessage: 'Synthetic prompt block.', safetyRatings: [{ category: 'HARM_CATEGORY_DANGEROUS_CONTENT', blocked: true }] };
+        fetchMock.mockResolvedValue({ ok: true, json: async () => ({ promptFeedback, responseId: 'synthetic-block' }) });
+        const { response } = await invoke(generate, { chat_completion_source: provider });
+        const reply = response.send.mock.calls[0][0];
+        expect(reply.error).toMatchObject({ type: 'provider_refusal', provider, reason: 'SAFETY', details: { promptFeedback, responseId: 'synthetic-block' } });
+        expect(reply.error.message).toContain('Synthetic prompt block.');
+        const { sendThroughConnectionManager } = await import('./provider-refusal-transport.js');
+        await expect(sendThroughConnectionManager(reply, provider)).rejects.toMatchObject({ code: 'provider_refusal', message: reply.error.message, details: reply.error });
+    });
+
+    test.each(['SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII', 'IMAGE_SAFETY', 'IMAGE_PROHIBITED_CONTENT', 'IMAGE_RECITATION', 'MODEL_ARMOR', 'ESCALATION', 'PUP_LIMITED_DISABLED'])(
+        'rejects a blocked candidate (%s), even if it contains a partial tool call', async finishReason => {
+            fetchMock.mockResolvedValue({ ok: true, json: async () => ({ candidates: [{
+                finishReason, finishMessage: 'Synthetic response block.',
+                content: { parts: [{ text: 'Incomplete output' }, { functionCall: { name: 'SillyDice', args: { formula: '1d6' } } }] },
+            }] }) });
+            const { response } = await invoke(generate, { chat_completion_source: provider });
+            const reply = response.send.mock.calls[0][0];
+            expect(reply.error).toMatchObject({ type: 'provider_refusal', provider, reason: finishReason, details: { finishReason, finishMessage: 'Synthetic response block.' } });
+            expect(reply.error.message).toContain(finishReason);
+            expect(reply).not.toHaveProperty('responseContent');
+            expect(reply).not.toHaveProperty('choices');
+        });
+
+    test('recognizes blocked safety ratings without a finish reason', async () => {
+        fetchMock.mockResolvedValue({ ok: true, json: async () => ({ candidates: [{ safetyRatings: [{ blocked: true, category: 'HARM_CATEGORY_DANGEROUS_CONTENT' }] }] }) });
+        const { response } = await invoke(generate, { chat_completion_source: provider });
+        expect(response.send.mock.calls[0][0].error).toMatchObject({ type: 'provider_refusal', reason: 'SAFETY' });
+    });
+
+    test('keeps non-refusal finish diagnostics on empty responses', async () => {
+        fetchMock.mockResolvedValue({ ok: true, json: async () => ({ candidates: [{ finishReason: 'MALFORMED_FUNCTION_CALL', finishMessage: 'Invalid tool arguments.' }] }) });
+        const { response } = await invoke(generate, { chat_completion_source: provider });
+        expect(response.send.mock.calls[0][0].error.message).toContain('MALFORMED_FUNCTION_CALL');
+        expect(response.send.mock.calls[0][0].error.message).toContain('Invalid tool arguments.');
+        expect(response.send.mock.calls[0][0].error.type).toBeUndefined();
+    });
+
+    test.each(['STOP', 'MAX_TOKENS'])('does not mistake %s or non-blocking ratings for a refusal', async finishReason => {
+        const content = { parts: [{ text: 'Visible answer', thoughtSignature: 'keep-native-signature' }] };
+        fetchMock.mockResolvedValue({ ok: true, json: async () => ({ candidates: [{ content, finishReason, safetyRatings: [{ blocked: false }] }], promptFeedback: { blockReason: 'BLOCK_REASON_UNSPECIFIED' } }) });
+        const { response } = await invoke(generate, { chat_completion_source: provider });
+        const reply = response.send.mock.calls[0][0];
+        expect(reply).not.toHaveProperty('error');
+        expect(reply).toMatchObject({ responseContent: content, finishReason });
+        const { sendThroughConnectionManager } = await import('./provider-refusal-transport.js');
+        await expect(sendThroughConnectionManager(reply, provider)).resolves.toEqual(reply);
+    });
+});

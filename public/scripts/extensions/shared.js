@@ -487,6 +487,8 @@ export class ConnectionManagerRequestService {
                 }
             }
         } catch (error) {
+            // Preserve explicit provider declines for agents and other callers.
+            if (error?.code === 'provider_refusal') throw error;
             throw new Error('API request failed', { cause: error });
         }
     }

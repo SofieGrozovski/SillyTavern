@@ -512,8 +512,33 @@ async function sendClaudeRequest(request, response) {
             const responseText = generateResponseJson?.content?.[0]?.text || '';
             console.debug('Claude response:', generateResponseJson);
 
-            // Wrap it back to OAI format + save the original content
-            const reply = { choices: [{ 'message': { 'content': responseText } }], content: generateResponseJson.content };
+            if (generateResponseJson.stop_reason === 'refusal') {
+                const details = generateResponseJson.stop_details;
+                const category = details?.category;
+                const explanation = details?.explanation;
+                // A refusal can contain partial output, including tool calls.
+                // Return diagnostics only: callers must not execute that output.
+                return response.send({ error: {
+                    type: 'provider_refusal',
+                    provider: 'claude',
+                    reason: category || 'refusal',
+                    message: `Claude refused the request${category ? ` (${category})` : ''}${explanation ? `: ${explanation}` : '.'}`,
+                    details: {
+                        stop_reason: generateResponseJson.stop_reason,
+                        stop_details: details,
+                        id: generateResponseJson.id,
+                        model: generateResponseJson.model,
+                    },
+                } });
+            }
+
+            // Wrap it back to OAI format + save the original content and stop metadata.
+            const reply = {
+                choices: [{ 'message': { 'content': responseText } }],
+                content: generateResponseJson.content,
+                stop_reason: generateResponseJson.stop_reason,
+                stop_details: generateResponseJson.stop_details,
+            };
             return response.send(reply);
         }
     } catch (error) {
@@ -851,6 +876,34 @@ async function sendMakerSuiteRequest(request, response) {
             const generateResponseJson = await generateResponse.json();
 
             const candidates = generateResponseJson?.candidates;
+            const candidate = candidates?.[0];
+            const promptFeedback = generateResponseJson.promptFeedback;
+            const promptBlocked = promptFeedback?.blockReason && promptFeedback.blockReason !== 'BLOCK_REASON_UNSPECIFIED';
+            const refusalReasons = new Set([
+                'SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII',
+                'IMAGE_SAFETY', 'IMAGE_PROHIBITED_CONTENT', 'IMAGE_RECITATION',
+                'MODEL_ARMOR', 'ESCALATION', 'PUP_LIMITED_DISABLED',
+            ]);
+            const responseBlocked = refusalReasons.has(candidate?.finishReason)
+                || candidate?.safetyRatings?.some(rating => rating.blocked);
+            if (promptBlocked || responseBlocked) {
+                const reason = promptBlocked ? promptFeedback.blockReason : (candidate?.finishReason || 'SAFETY');
+                const explanation = promptBlocked ? promptFeedback.blockReasonMessage : candidate?.finishMessage;
+                return response.send({ error: {
+                    type: 'provider_refusal',
+                    provider: useVertexAi ? 'vertexai' : 'makersuite',
+                    reason,
+                    message: `${apiName} refused the ${promptBlocked ? 'prompt' : 'response'} (${reason})${explanation ? `: ${explanation}` : '.'}`,
+                    details: {
+                        promptFeedback,
+                        finishReason: candidate?.finishReason,
+                        finishMessage: candidate?.finishMessage,
+                        safetyRatings: candidate?.safetyRatings,
+                        responseId: generateResponseJson.responseId,
+                        modelVersion: generateResponseJson.modelVersion,
+                    },
+                } });
+            }
             if (!candidates || candidates.length === 0) {
                 let message = `${apiName} API returned no candidate`;
                 console.warn(message, generateResponseJson);
@@ -868,12 +921,20 @@ async function sendMakerSuiteRequest(request, response) {
             const responseText = typeof responseContent === 'string' ? responseContent : responseContent?.parts?.filter(part => !part.thought)?.map(part => part.text)?.join('\n\n');
             if (!responseText && !functionCall && !inlineData) {
                 let message = `${apiName} Candidate text empty`;
+                if (candidate.finishReason) message += ` (${candidate.finishReason})`;
+                if (candidate.finishMessage) message += `: ${candidate.finishMessage}`;
                 console.warn(message, generateResponseJson);
                 return response.send({ error: { message } });
             }
 
             // Wrap it back to OAI format (responseContent includes thought signatures in parts array)
-            const reply = { choices: [{ 'message': { 'content': responseText } }], responseContent };
+            const reply = {
+                choices: [{ 'message': { 'content': responseText } }],
+                responseContent,
+                finishReason: candidate.finishReason,
+                finishMessage: candidate.finishMessage,
+                promptFeedback,
+            };
             return response.send(reply);
         }
     } catch (error) {

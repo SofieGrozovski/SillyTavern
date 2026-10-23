@@ -153,3 +153,42 @@ describe.each(['claude-opus-5-5', 'claude-sonnet-5-5', 'anthropic/claude-fable-5
         expect(body.tools.map(tool => tool.name)).toEqual(['SillyDice']);
     });
 });
+
+
+describe('Claude refusal diagnostics', () => {
+    test.each([[], [{ type: 'text', text: 'Partial response' }], [{ type: 'tool_use', id: 'partial', name: 'SillyDice', input: {} }]].map(content => [content]))(
+        'rejects refused output before any tool can execute: %j', async content => {
+            const details = { type: 'refusal', category: 'reasoning_extraction', explanation: 'Synthetic policy explanation.' };
+            fetchMock.mockResolvedValue({ ok: true, json: async () => ({
+                content, stop_reason: 'refusal', stop_details: details, id: 'synthetic-refusal', model: 'claude-sonnet-5-5',
+            }) });
+            const { response } = await invoke();
+            const reply = response.send.mock.calls[0][0];
+            expect(reply.error).toMatchObject({ type: 'provider_refusal', provider: 'claude', reason: 'reasoning_extraction',
+                details: { stop_reason: 'refusal', stop_details: details, id: 'synthetic-refusal' } });
+            expect(reply).not.toHaveProperty('content');
+            expect(reply).not.toHaveProperty('choices');
+            const { sendThroughConnectionManager } = await import('./provider-refusal-transport.js');
+            await expect(sendThroughConnectionManager(reply)).rejects.toMatchObject({
+                code: 'provider_refusal', message: 'Claude refused the request (reasoning_extraction): Synthetic policy explanation.',
+                details: reply.error,
+            });
+        });
+
+    test('reports refusals with no named category or explanation', async () => {
+        fetchMock.mockResolvedValue({ ok: true, json: async () => ({ content: [], stop_reason: 'refusal', stop_details: { type: 'refusal', category: null, explanation: null } }) });
+        const { response } = await invoke();
+        expect(response.send.mock.calls[0][0].error).toMatchObject({ type: 'provider_refusal', reason: 'refusal', message: 'Claude refused the request.' });
+    });
+
+    test('preserves normal tool calls and stop metadata through Connection Manager', async () => {
+        const content = [{ type: 'tool_use', id: 'allowed', name: 'SillyDice', input: { formula: '1d6' } }];
+        fetchMock.mockResolvedValue({ ok: true, json: async () => ({ content, stop_reason: 'tool_use', stop_details: null }) });
+        const { response } = await invoke();
+        const reply = response.send.mock.calls[0][0];
+        expect(reply).toMatchObject({ content, stop_reason: 'tool_use', stop_details: null });
+        expect(reply).not.toHaveProperty('error');
+        const { sendThroughConnectionManager } = await import('./provider-refusal-transport.js');
+        await expect(sendThroughConnectionManager(reply)).resolves.toEqual(reply);
+    });
+});

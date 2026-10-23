@@ -471,7 +471,11 @@ export class ChatCompletionService {
         if (!data.stream) {
             const json = await response.json();
             if (!response.ok || json.error) {
-                throw new Error(String(json.error?.message || 'Response not OK'));
+                const error = new Error(String(json.error?.message || 'Response not OK'));
+                if (json.error?.type === 'provider_refusal') {
+                    Object.assign(error, { code: 'provider_refusal', details: json.error });
+                }
+                throw error;
             }
 
             if (!extractData) {
