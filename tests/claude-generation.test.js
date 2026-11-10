@@ -129,7 +129,7 @@ describe('Claude tool choice conversion', () => {
     });
 });
 
-describe.each(['claude-opus-5-5', 'claude-sonnet-5-5', 'anthropic/claude-fable-5-1', 'anthropic/claude-opus-5-5'])('%s forced tool restrictions', model => {
+describe.each(['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-fable-5-2', 'anthropic/claude-fable-5-1', 'anthropic/claude-fable-5-2', 'anthropic/claude-opus-5-5'])('%s forced tool restrictions', model => {
     test.each([namedChoice, 'required', 'any', { type: 'tool', name: 'SillyDice' }, { type: 'any' }])('uses auto for %j', async choice => {
         const { body } = await invoke({ model, tool_choice: choice });
         expect(body.tool_choice).toEqual({ type: 'auto' });
@@ -154,6 +154,30 @@ describe.each(['claude-opus-5-5', 'claude-sonnet-5-5', 'anthropic/claude-fable-5
     });
 });
 
+describe('Claude thinking block binding', () => {
+    const toolTurn = [
+        { role: 'user', content: 'Call SillyDice to roll 2d6.' },
+        {
+            role: 'assistant', content: '',
+            tool_calls: [{ id: 'prior-call', type: 'function', function: { name: 'SillyDice', arguments: '{"formula":"2d6"}' } }],
+            reasoning_blocks: [{ type: 'thinking', thinking: '', signature: 'synthetic-signature' }],
+        },
+        { role: 'tool', tool_call_id: 'prior-call', content: '7' },
+    ];
+
+    test.each(['claude-fable-5-1', 'claude-fable-5-2', 'anthropic/claude-fable-5-2'])('drops mismatched thinking blocks on %s', async model => {
+        const { body } = await invoke({ model, messages: toolTurn, reasoning_effort: 'auto' });
+        expect(body.thinking.block_binding).toEqual({ prefix_mismatch_behavior: 'drop_block' });
+        expect(body.messages[1].content[0]).toMatchObject({ type: 'thinking', signature: 'synthetic-signature' });
+        const [, options] = fetchMock.mock.calls[0];
+        expect(options.headers['anthropic-beta']).toContain('thinking-binding-controls-2026-08-01');
+    });
+
+    test('does not request block binding on Fable 5', async () => {
+        const { body } = await invoke({ model: 'claude-fable-5', messages: toolTurn, reasoning_effort: 'auto' });
+        expect(body.thinking?.block_binding).toBeUndefined();
+    });
+});
 
 describe('Claude refusal diagnostics', () => {
     test.each([[], [{ type: 'text', text: 'Partial response' }], [{ type: 'tool_use', id: 'partial', name: 'SillyDice', input: {} }]].map(content => [content]))(
