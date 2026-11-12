@@ -20,17 +20,19 @@ function capabilities(settings, modelList = []) {
     });
 }
 
-describe.each(['makersuite', 'vertexai'])('Gemini 4 Argon frontend capabilities for %s', provider => {
-    const settings = { chat_completion_source: provider, google_model: 'gemini-4-argon', vertexai_model: 'gemini-4-argon' };
+describe.each(['makersuite', 'vertexai'].flatMap(provider =>
+    ['gemini-4-argon', 'gemini-4-carbon', 'gemini-4-hydrogen'].map(model => [provider, model]),
+))('%s frontend capabilities for %s', (provider, model) => {
+    const settings = { chat_completion_source: provider, google_model: model, vertexai_model: model };
 
     test('uses the full context window when a proxy supplies no model metadata', () => {
-        expect(capabilities(settings).getGeminiMaxContext('gemini-4-argon', false)).toBe(1048576);
+        expect(capabilities(settings).getGeminiMaxContext(model, false)).toBe(1048576);
     });
 
     test('respects metadata limits and the context unlock setting', () => {
-        const api = capabilities(settings, [{ id: 'gemini-4-argon', inputTokenLimit: 500000 }]);
-        expect(api.getGeminiMaxContext('gemini-4-argon', false)).toBe(500000);
-        expect(api.getGeminiMaxContext('gemini-4-argon', true)).toBe(2000000);
+        const api = capabilities(settings, [{ id: model, inputTokenLimit: 500000 }]);
+        expect(api.getGeminiMaxContext(model, false)).toBe(500000);
+        expect(api.getGeminiMaxContext(model, true)).toBe(2000000);
     });
 
     test('allows image, video and audio attachments', () => {

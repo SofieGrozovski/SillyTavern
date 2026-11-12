@@ -3175,6 +3175,40 @@ export function initDefaultSlashCommands() {
         `,
     }));
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'vertexai-auth-mode',
+        callback: setVertexAIAuthModeCallback,
+        returns: t`the current Vertex AI authentication mode`,
+        unnamedArgumentList: [
+            SlashCommandArgument.fromProps({
+                description: t`Authentication mode`,
+                typeList: [ARGUMENT_TYPE.STRING],
+                enumList: ['express', 'full'],
+            }),
+        ],
+        helpString: t`Get or set the authentication mode for the currently selected Vertex AI connection. Use express for an API key or full for a service account.`,
+    }));
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'vertexai-project-id',
+        callback: setVertexAIProjectIdCallback,
+        returns: t`the current Vertex AI Express project ID`,
+        namedArgumentList: [
+            SlashCommandNamedArgument.fromProps({
+                name: 'force',
+                description: t`Allow clearing the project ID with an empty value`,
+                typeList: [ARGUMENT_TYPE.BOOLEAN],
+                defaultValue: 'false',
+                enumList: commonEnumProviders.boolean('trueFalse')(),
+            }),
+        ],
+        unnamedArgumentList: [
+            SlashCommandArgument.fromProps({
+                description: t`Google Cloud project ID`,
+                typeList: [ARGUMENT_TYPE.STRING],
+            }),
+        ],
+        helpString: t`Get or set the project ID for the currently selected Vertex AI connection. Use force=true with no value to clear it.`,
+    }));
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'tokenizer',
         callback: selectTokenizerCallback,
         returns: t`current tokenizer`,
@@ -6542,6 +6576,42 @@ function setPromptEntryCallback(args, targetState) {
     promptManager.render();
     promptManager.saveServiceSettings();
     return '';
+}
+
+/**
+ * Get or set the active Vertex AI authentication mode.
+ * @param {object} args Named arguments
+ * @param {string} value Authentication mode, or empty to read it
+ * @returns {string|undefined} Current mode, or undefined outside Vertex AI
+ */
+function setVertexAIAuthModeCallback(args, value) {
+    if (main_api !== 'openai' || oai_settings.chat_completion_source !== chat_completion_sources.VERTEXAI) {
+        return undefined;
+    }
+    if (value) {
+        if (!['express', 'full'].includes(value)) {
+            throw new Error('Invalid Vertex AI authentication mode: expected express or full');
+        }
+        $('#vertexai_auth_mode').val(value).trigger('change');
+    }
+    return oai_settings.vertexai_auth_mode || 'express';
+}
+
+/**
+ * Get or set the active Vertex AI Express project ID, preserving an explicit empty value.
+ * @param {object} args Named arguments
+ * @param {string} [args.force] Allow clearing the project ID
+ * @param {string} value Project ID, or empty to read it unless force=true
+ * @returns {string|undefined} Current project ID, or undefined outside Vertex AI
+ */
+function setVertexAIProjectIdCallback({ force = 'false' }, value) {
+    if (main_api !== 'openai' || oai_settings.chat_completion_source !== chat_completion_sources.VERTEXAI) {
+        return undefined;
+    }
+    if (value || isTrueBoolean(force)) {
+        $('#vertexai_express_project_id').val(value ?? '').trigger('input');
+    }
+    return oai_settings.vertexai_express_project_id ?? '';
 }
 
 /**

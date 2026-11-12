@@ -450,6 +450,10 @@ export class ConnectionManagerRequestService {
                         secret_id: profile['secret-id'],
                         custom_url: profile['api-url'],
                         vertexai_region: profile['api-url'],
+                        ...(selectedApiMap.source === 'vertexai' ? {
+                            vertexai_auth_mode: profile['vertexai-auth-mode'],
+                            vertexai_express_project_id: profile['vertexai-project-id'],
+                        } : {}),
                         zai_endpoint: profile['api-url'],
                         siliconflow_endpoint: profile['api-url'],
                         minimax_endpoint: profile['api-url'],

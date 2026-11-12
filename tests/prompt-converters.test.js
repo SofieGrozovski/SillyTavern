@@ -215,8 +215,10 @@ describe('calculateGoogleBudgetTokens', () => {
         ['high', 'high'],
         ['xhigh', 'high'],
         ['max', 'high'],
-    ])('Gemini 4 Argon maps %s effort to %s', (effort, level) => {
-        expect(mod.calculateGoogleBudgetTokens(8192, effort, 'gemini-4-argon')).toBe(level);
+    ])('Gemini 4 maps %s effort to %s', (effort, level) => {
+        for (const model of ['gemini-4-argon', 'gemini-4-carbon', 'gemini-4-hydrogen']) {
+            expect(mod.calculateGoogleBudgetTokens(8192, effort, model)).toBe(level);
+        }
     });
 
     describe('gemini-3 pro', () => {
@@ -1081,7 +1083,7 @@ describe('convertGooglePrompt', () => {
         expect(result.contents.filter(c => c.role === 'user')).toHaveLength(1);
     });
 
-    for (const model of ['gemini-4-argon', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite']) {
+    for (const model of ['gemini-4-argon', 'gemini-4-carbon', 'gemini-4-hydrogen', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite']) {
         test(`merges a trailing prefill into the user turn on ${model}`, () => {
             const messages = [
                 { role: 'user', content: 'Hi' },
@@ -1150,7 +1152,7 @@ describe('convertGooglePrompt', () => {
         expect(funcResp.functionResponse.name).toBe('search');
     });
 
-    test.each(['gemini-4-argon', 'gemini-3.8-flash', 'gemini-2.5-pro'])('separates tool responses from following text on %s', model => {
+    test.each(['gemini-4-argon', 'gemini-4-carbon', 'gemini-4-hydrogen', 'gemini-3.8-flash', 'gemini-2.5-pro'])('separates tool responses from following text on %s', model => {
         const messages = [
             { role: 'user', content: 'Look up both records' },
             { role: 'assistant', tool_calls: [

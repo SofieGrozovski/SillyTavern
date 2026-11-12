@@ -70,10 +70,12 @@ async function invoke(handler, overrides = {}) {
     return { url, headers: options.headers, body: JSON.parse(options.body), response };
 }
 
-describe.each(['makersuite', 'vertexai'])('Gemini 4 Argon requests through %s', provider => {
+describe.each(['makersuite', 'vertexai'].flatMap(provider =>
+    ['gemini-4-argon', 'gemini-4-carbon', 'gemini-4-hydrogen'].map(model => [provider, model]),
+))('%s requests for %s', (provider, model) => {
     test('sends thinking levels, omits sampling, and uses the correct API route', async () => {
-        const { url, headers, body } = await invoke(generate, { chat_completion_source: provider });
-        expect(url).toContain('/models/gemini-4-argon:generateContent');
+        const { url, headers, body } = await invoke(generate, { chat_completion_source: provider, model });
+        expect(url).toContain(`/models/${model}:generateContent`);
         if (provider === 'vertexai') {
             expect(url).toContain('/v1/publishers/google/');
             expect(headers.Authorization).toBe('Bearer test-key');
@@ -87,14 +89,14 @@ describe.each(['makersuite', 'vertexai'])('Gemini 4 Argon requests through %s', 
     });
 
     test('auto leaves the model default thinking level intact', async () => {
-        const { body } = await invoke(generate, { chat_completion_source: provider, reasoning_effort: 'auto', include_reasoning: false });
+        const { body } = await invoke(generate, { chat_completion_source: provider, model, reasoning_effort: 'auto', include_reasoning: false });
         expect(body.generationConfig.thinkingConfig).toEqual({ includeThoughts: false });
     });
 
     test('keeps system instructions and structured output', async () => {
         const schema = { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'] };
         const { body } = await invoke(generate, {
-            chat_completion_source: provider,
+            chat_completion_source: provider, model,
             use_sysprompt: true,
             messages: [{ role: 'system', content: 'Be concise' }, { role: 'user', content: 'Hello' }],
             json_schema: { name: 'answer', value: schema },
@@ -138,7 +140,7 @@ describe.each(['makersuite', 'vertexai'])('Gemini 4 Argon requests through %s', 
             },
         }];
         const original = structuredClone(tools);
-        const { body } = await invoke(generate, { chat_completion_source: provider, stream, tools });
+        const { body } = await invoke(generate, { chat_completion_source: provider, model, stream, tools });
         const declarations = body.tools[0].function_declarations;
         const expectedImageSchema = structuredClone(original[0].function.parameters);
         delete expectedImageSchema.$schema;
@@ -161,7 +163,7 @@ describe.each(['makersuite', 'vertexai'])('Gemini 4 Argon requests through %s', 
             },
         };
         const { body } = await invoke(generate, {
-            chat_completion_source: provider,
+            chat_completion_source: provider, model,
             tools: [{ type: 'function', function: { name: 'nested', parameters } }],
         });
         expect(body.tools[0].function_declarations[0]).toEqual({ name: 'nested', parametersJsonSchema: parameters });
@@ -169,7 +171,7 @@ describe.each(['makersuite', 'vertexai'])('Gemini 4 Argon requests through %s', 
 
     test.each([undefined, { type: 'object', properties: {} }])('supports a parameterless tool with schema %j', async parameters => {
         const { body } = await invoke(generate, {
-            chat_completion_source: provider,
+            chat_completion_source: provider, model,
             tools: [{ type: 'function', function: { name: 'get_time', parameters } }],
         });
         const declaration = body.tools[0].function_declarations[0];
@@ -181,7 +183,7 @@ describe.each(['makersuite', 'vertexai'])('Gemini 4 Argon requests through %s', 
     test('uses an explicit native schema without also sending parameters', async () => {
         const parametersJsonSchema = { type: 'object', properties: { value: { type: 'number', enum: [0.5, 1.5] } } };
         const { body } = await invoke(generate, {
-            chat_completion_source: provider,
+            chat_completion_source: provider, model,
             tools: [{ type: 'function', function: { name: 'native', parametersJsonSchema, parameters: { type: 'object' } } }],
         });
         expect(body.tools[0].function_declarations[0]).toEqual({ name: 'native', parametersJsonSchema });
@@ -189,7 +191,7 @@ describe.each(['makersuite', 'vertexai'])('Gemini 4 Argon requests through %s', 
 
     test('keeps Google built-in tools unchanged', async () => {
         const { body } = await invoke(generate, {
-            chat_completion_source: provider,
+            chat_completion_source: provider, model,
             tools: [{ type: 'google_search', google_search: {} }],
         });
         expect(body.tools).toEqual([{ google_search: {} }]);
@@ -198,7 +200,7 @@ describe.each(['makersuite', 'vertexai'])('Gemini 4 Argon requests through %s', 
     test('preserves signed tool history and supplies a fallback for imported calls', async () => {
         const call = (id, signature) => ({ id, type: 'function', function: { name: 'lookup', arguments: '{"query":"x"}' }, signature });
         const { body } = await invoke(generate, {
-            chat_completion_source: provider,
+            chat_completion_source: provider, model,
             messages: [
                 { role: 'user', content: 'Look it up' },
                 { role: 'assistant', tool_calls: [call('signed', 'original-signature'), call('imported')] },
@@ -219,7 +221,7 @@ describe.each(['makersuite', 'vertexai'])('Gemini 4 Argon requests through %s', 
 
     test('preserves text signatures and image/video resolution', async () => {
         const { body } = await invoke(generate, {
-            chat_completion_source: provider,
+            chat_completion_source: provider, model,
             messages: [
                 { role: 'assistant', content: 'Previous answer', signature: 'text-signature' },
                 { role: 'user', content: [
@@ -239,7 +241,7 @@ describe.each(['makersuite', 'vertexai'])('Gemini 4 Argon requests through %s', 
 
     test.each([false, true])('keeps user text after tool results in a separate turn with stream=%s', async stream => {
         const { body } = await invoke(generate, {
-            chat_completion_source: provider,
+            chat_completion_source: provider, model,
             stream,
             custom_prompt_post_processing: 'semi_tools',
             messages: [
@@ -264,7 +266,7 @@ describe.each(['makersuite', 'vertexai'])('Gemini 4 Argon requests through %s', 
     });
 
     test.each([[false, 32768], [true, 65536]])('limits output for stream=%s to %s tokens', async (stream, limit) => {
-        const { url, body } = await invoke(generate, { chat_completion_source: provider, stream, max_tokens: 200000 });
+        const { url, body } = await invoke(generate, { chat_completion_source: provider, model, stream, max_tokens: 200000 });
         expect(body.generationConfig.maxOutputTokens).toBe(limit);
         expect(url).toContain(stream ? ':streamGenerateContent' : ':generateContent');
         expect(forwardMock).toHaveBeenCalledTimes(stream ? 1 : 0);
@@ -277,6 +279,7 @@ describe.each(['makersuite', 'vertexai'])('Gemini 4 Argon requests through %s', 
         });
         const { body, response } = await invoke(caption, {
             api: provider === 'vertexai' ? 'vertexai' : 'google',
+            model,
             image: 'data:image/png;base64,aW1hZ2U=',
             prompt: 'Describe this image',
         });

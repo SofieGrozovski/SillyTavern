@@ -33,13 +33,17 @@ const DEFAULT_SETTINGS = {
 const ALLOW_EMPTY = [
     'stop-strings',
     'start-reply-with',
+    'vertexai-project-id',
 ];
+
+const VERTEXAI_COMMANDS = ['vertexai-auth-mode', 'vertexai-project-id'];
 
 const CC_COMMANDS = [
     'api',
     'preset',
     // Do not fix; CC needs to set the API twice because it could be overridden by the preset
     'api',
+    ...VERTEXAI_COMMANDS,
     'api-url',
     'model',
     'proxy',
@@ -72,6 +76,8 @@ const TC_COMMANDS = [
 const FANCY_NAMES = {
     'api': 'API',
     'api-url': 'Server URL',
+    'vertexai-auth-mode': 'Vertex AI Authentication Mode',
+    'vertexai-project-id': 'Vertex AI Project ID',
     'preset': 'Settings Preset',
     'model': 'Model',
     'proxy': 'Proxy Preset',
@@ -176,6 +182,8 @@ const profilesProvider = () => [
  * @property {string} [sysprompt] System Prompt Name
  * @property {string} [sysprompt-state] Use System Prompt
  * @property {string} [api-url] Server URL
+ * @property {string} [vertexai-auth-mode] Vertex AI authentication mode
+ * @property {string} [vertexai-project-id] Vertex AI Express project ID (empty means no project)
  * @property {string} [secret-id] Secret ID
  * @property {string} [regex-preset] Regex Preset ID
  * @property {string[]} [exclude] Commands to exclude
@@ -228,6 +236,11 @@ async function readProfileFromCommands(mode, profile, cleanUp = false) {
             if (result || (allowEmpty && result === '')) {
                 profile[command] = result;
                 continue;
+            }
+            // Provider-specific commands return undefined outside Vertex AI.
+            // Remove stale fields when updating a profile to another provider.
+            if (cleanUp && VERTEXAI_COMMANDS.includes(command) && result === undefined) {
+                delete profile[command];
             }
         } catch (error) {
             console.error(`Failed to execute command: ${command}`, error);
@@ -821,7 +834,7 @@ export async function init() {
         let saveChanges = false;
         const sortByViewOrder = (a, b) => Object.keys(FANCY_NAMES).indexOf(a) - Object.keys(FANCY_NAMES).indexOf(b);
         const commands = profile.mode === 'cc' ? CC_COMMANDS : TC_COMMANDS;
-        const settings = commands.slice().sort(sortByViewOrder).reduce((acc, command) => {
+        const settings = commands.filter(command => !VERTEXAI_COMMANDS.includes(command) || profile.api === 'vertexai' || profile[command] !== undefined).sort(sortByViewOrder).reduce((acc, command) => {
             const fancyName = FANCY_NAMES[command];
             acc[fancyName] = !profile.exclude.includes(command);
             return acc;
